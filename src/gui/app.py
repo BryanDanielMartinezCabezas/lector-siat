@@ -26,9 +26,34 @@ from src.siat.rpa_selenium import Credenciales
 from src.gui.hilo_rpa import HiloRPA
 
 _COLORES_ESTADO = {
-    "pendiente": "#8a6d1a", "en_proceso": "#1a5a8a", "exitoso": "#166534",
-    "fallido": "#7a1f1f", "saltado": "#4a4a4a",
+    "pendiente": "#d9a441", "en_proceso": "#3794d6", "exitoso": "#3fb950",
+    "fallido": "#f85149", "saltado": "#6e7681",
 }
+
+# Tema oscuro moderno neutro (estilo VS Code).
+_ESTILO = """
+QMainWindow, QWidget { background: #1e1e1e; color: #d4d4d4;
+    font-family: 'Segoe UI', Roboto, sans-serif; font-size: 13px; }
+QLabel { color: #d4d4d4; }
+QPushButton { background: #2d2d30; color: #e8e8e8; border: 1px solid #3c3c3c;
+    border-radius: 6px; padding: 9px 14px; font-weight: 600; }
+QPushButton:hover { background: #37373d; border-color: #0e7ac0; }
+QPushButton:pressed { background: #094771; }
+QPushButton:disabled { color: #6e6e6e; background: #262626; }
+#btnPrimario { background: #0e7ac0; border-color: #0e7ac0; color: white; }
+#btnPrimario:hover { background: #1a8ad4; }
+QTableWidget { background: #252526; alternate-background-color: #2a2a2b;
+    color: #d4d4d4; gridline-color: #3c3c3c; border: 1px solid #3c3c3c;
+    border-radius: 8px; }
+QTableWidget::item { padding: 6px; }
+QTableWidget::item:selected { background: #094771; color: white; }
+QHeaderView::section { background: #2d2d30; color: #9da5b4; padding: 8px;
+    border: none; border-bottom: 1px solid #3c3c3c; font-weight: 600; }
+QLineEdit { background: #1a1a1a; color: #e8e8e8; border: 1px solid #3c3c3c;
+    border-radius: 6px; padding: 8px; }
+QLineEdit:focus { border-color: #0e7ac0; }
+QDialog { background: #252526; }
+"""
 
 
 class DialogoCredenciales(QDialog):
@@ -83,9 +108,17 @@ class VentanaPrincipal(QMainWindow):
 
         # Columna izquierda: cámara + LED + captura
         izq = QVBoxLayout()
+        titulo_app = QLabel("Lector SIAT")
+        titulo_app.setStyleSheet("font-size:20px;font-weight:700;color:#e8e8e8;padding-bottom:2px;")
+        subtitulo = QLabel("Tarjetas prepago → Registro de Compras")
+        subtitulo.setStyleSheet("font-size:12px;color:#8a8a8a;padding-bottom:10px;")
+        izq.addWidget(titulo_app)
+        izq.addWidget(subtitulo)
+
         self.vista_camara = QLabel("Iniciando cámara…")
         self.vista_camara.setFixedSize(480, 360)
-        self.vista_camara.setStyleSheet("background:#111;color:#aaa;border:1px solid #333;")
+        self.vista_camara.setStyleSheet(
+            "background:#141414;color:#777;border:1px solid #3c3c3c;border-radius:10px;")
         self.vista_camara.setAlignment(Qt.AlignmentFlag.AlignCenter)
         izq.addWidget(self.vista_camara)
 
@@ -98,7 +131,9 @@ class VentanaPrincipal(QMainWindow):
         fila_led.addWidget(self.etiqueta_lectura, 1)
         izq.addLayout(fila_led)
 
-        self.btn_capturar = QPushButton("📸 Capturar (Espacio)")
+        self.btn_capturar = QPushButton("📸  Capturar  (Espacio)")
+        self.btn_capturar.setObjectName("btnPrimario")
+        self.btn_capturar.setMinimumHeight(42)
         self.btn_capturar.clicked.connect(self.capturar)
         izq.addWidget(self.btn_capturar)
         izq.addStretch(1)
@@ -107,22 +142,34 @@ class VentanaPrincipal(QMainWindow):
         # Columna derecha: contadores + tabla + acciones
         der = QVBoxLayout()
         self.contadores_layout = QGridLayout()
+        self.contadores_layout.setSpacing(10)
         self._labels_contador = {}
         for i, estado in enumerate(ESTADOS):
+            tarjeta = QWidget()
+            tarjeta.setStyleSheet(
+                "background:#252526;border:1px solid #3c3c3c;border-radius:8px;")
+            v = QVBoxLayout(tarjeta)
+            v.setContentsMargins(8, 10, 8, 10)
+            v.setSpacing(2)
             caja = QLabel("0")
             caja.setAlignment(Qt.AlignmentFlag.AlignCenter)
             caja.setStyleSheet(
-                f"background:{_COLORES_ESTADO[estado]};color:white;"
-                "border-radius:6px;padding:8px;font-size:16px;font-weight:bold;")
+                f"background:transparent;border:none;color:{_COLORES_ESTADO[estado]};"
+                "font-size:26px;font-weight:700;")
             titulo = QLabel(estado.replace("_", " ").upper())
             titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            titulo.setStyleSheet("font-size:10px;color:#666;")
-            self.contadores_layout.addWidget(caja, 0, i)
-            self.contadores_layout.addWidget(titulo, 1, i)
+            titulo.setStyleSheet(
+                "background:transparent;border:none;font-size:10px;"
+                "color:#8a8a8a;font-weight:600;letter-spacing:0.5px;")
+            v.addWidget(caja)
+            v.addWidget(titulo)
+            self.contadores_layout.addWidget(tarjeta, 0, i)
             self._labels_contador[estado] = caja
         der.addLayout(self.contadores_layout)
 
         self.tabla = QTableWidget(0, 6)
+        self.tabla.setAlternatingRowColors(True)
+        self.tabla.verticalHeader().setVisible(False)
         self.tabla.setHorizontalHeaderLabels(
             ["ID", "Estado", "NIT", "N° Factura", "Fecha", "Importe"])
         self.tabla.horizontalHeader().setSectionResizeMode(
@@ -131,6 +178,7 @@ class VentanaPrincipal(QMainWindow):
 
         acciones = QHBoxLayout()
         self.btn_procesar = QPushButton("▶ Procesar en SIAT")
+        self.btn_procesar.setObjectName("btnPrimario")
         self.btn_procesar.clicked.connect(self.procesar_siat)
         self.btn_excel = QPushButton("⬇ Exportar Excel RCV")
         self.btn_excel.clicked.connect(self.exportar_excel)
@@ -287,6 +335,7 @@ class VentanaPrincipal(QMainWindow):
 
 def lanzar(config: dict, selectores: dict, credenciales_prefill: dict | None = None):
     app = QApplication.instance() or QApplication([])
+    app.setStyleSheet(_ESTILO)
     ventana = VentanaPrincipal(config, selectores, credenciales_prefill)
     ventana.show()
     app.exec()
