@@ -90,6 +90,14 @@ def test_entel_droidcam_no_confunde_factura_con_telefono_ni_autorizacion():
     assert d.importe == "10.00"
 
 
+def test_nit_mal_leido_se_corrige_por_operadora():
+    # OCR leyó mal el NIT (le comió un dígito) pero la tarjeta dice ENTEL.
+    lineas = ["ENTEL S.A.", "NIT: 102010302", "FACTURA N°: 162452780",
+              "FECHALIMITEDEEMISION: 31/12/2026", "IMPORTE Bs. 10.00"]
+    d = extraer_de_lineas(lineas)
+    assert d.nit == "1020703023"   # corregido al NIT oficial de Entel
+
+
 def test_prefiere_fecha_de_emision_sobre_fecha_de_uso():
     # La fecha de uso (2029) aparece primero, pero se debe declarar la de emisión.
     lineas = ["10/11/2029", "Raspe con cuidado",

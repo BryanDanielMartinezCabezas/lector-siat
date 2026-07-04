@@ -39,7 +39,7 @@ class LibroMayor:
         os.replace(tmp, self.ruta)  # atómico en el mismo volumen
 
     # ── Operaciones ───────────────────────────────────────────────────────
-    def agregar(self, datos) -> str:
+    def agregar(self, datos, imagen: str | None = None) -> str:
         tx_id = f"TX-{len(self._transacciones) + 1:06d}"
         ahora = datetime.now().isoformat(timespec="seconds")
         self._transacciones.append({
@@ -48,10 +48,34 @@ class LibroMayor:
             "detalle": "",
             "creado": ahora,
             "actualizado": ahora,
+            "imagen": imagen,   # ruta de la foto capturada, para verificación manual
             "datos": datos.a_dict() if hasattr(datos, "a_dict") else dict(datos),
         })
         self._guardar()
         return tx_id
+
+    def actualizar_datos(self, tx_id: str, nuevos_datos: dict) -> None:
+        """Reemplaza los campos fiscales de una transacción (edición manual)."""
+        for tx in self._transacciones:
+            if tx["id"] == tx_id:
+                tx["datos"] = dict(nuevos_datos)
+                tx["actualizado"] = datetime.now().isoformat(timespec="seconds")
+                self._guardar()
+                return
+        raise KeyError(f"No existe la transacción '{tx_id}'.")
+
+    def eliminar(self, tx_id: str) -> None:
+        """Borra una transacción (ej. una foto duplicada por accidente)."""
+        antes = len(self._transacciones)
+        self._transacciones = [t for t in self._transacciones if t["id"] != tx_id]
+        if len(self._transacciones) == antes:
+            raise KeyError(f"No existe la transacción '{tx_id}'.")
+        self._guardar()
+
+    def vaciar(self) -> None:
+        """Borra todas las transacciones (empezar de cero)."""
+        self._transacciones = []
+        self._guardar()
 
     def marcar(self, tx_id: str, estado: str, detalle: str = "") -> None:
         if estado not in ESTADOS:

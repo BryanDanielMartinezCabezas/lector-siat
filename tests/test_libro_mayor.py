@@ -57,6 +57,34 @@ def test_siguiente_lote_de_cinco(tmp_path):
     assert len(lm.siguiente_lote(5)) == 5
 
 
+def test_agregar_guarda_ruta_de_imagen(tmp_path):
+    lm = LibroMayor(str(tmp_path / "lm.json"))
+    lm.agregar(_d(), imagen="datos/capturas/tarjeta_1.png")
+    assert lm.todas()[0]["imagen"] == "datos/capturas/tarjeta_1.png"
+
+
+def test_actualizar_datos_edicion_manual(tmp_path):
+    lm = LibroMayor(str(tmp_path / "lm.json"))
+    lm.agregar(_d())
+    lm.actualizar_datos("TX-000001", {"nit": "1020703023", "numero_factura": "999",
+                                       "fecha": "01/01/2026", "importe": "20.00"})
+    assert lm.todas()[0]["datos"]["numero_factura"] == "999"
+
+
+def test_eliminar_transaccion(tmp_path):
+    lm = LibroMayor(str(tmp_path / "lm.json"))
+    lm.agregar(_d()); lm.agregar(_d())
+    lm.eliminar("TX-000001")
+    assert [t["id"] for t in lm.todas()] == ["TX-000002"]
+
+
+def test_vaciar_libro(tmp_path):
+    lm = LibroMayor(str(tmp_path / "lm.json"))
+    lm.agregar(_d()); lm.agregar(_d())
+    lm.vaciar()
+    assert lm.todas() == []
+
+
 def test_contadores_por_estado(tmp_path):
     lm = LibroMayor(str(tmp_path / "lm.json"))
     for _ in range(3):

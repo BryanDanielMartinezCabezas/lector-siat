@@ -19,7 +19,9 @@ from PyQt6.QtWidgets import (
 
 from src.captura.camara import Camara
 from src.captura.indicador_led import LedVirtual
+from src.extraccion.datos_fiscales import DatosFiscales
 from src.extraccion.pipeline import PipelineExtraccion
+from src.extraccion.validador import validar
 from src.libro_mayor.libro_mayor import LibroMayor, ESTADOS
 from src.siat.excel_rcv import generar_excel_compras
 from src.siat.rpa_selenium import Credenciales
@@ -78,6 +80,81 @@ class DialogoCredenciales(QDialog):
     def credenciales(self) -> Credenciales:
         return Credenciales(self.nit.text().strip(), self.email.text().strip(),
                             self.password.text())
+
+
+class DialogoDetalle(QDialog):
+    """Muestra la foto de la tarjeta en grande y permite editar todos los campos."""
+
+    CAMPOS = [
+        ("nit", "NIT"), ("numero_factura", "N° Factura"),
+        ("autorizacion", "Código de Autorización"), ("fecha", "Fecha (dd/mm/aaaa)"),
+        ("importe", "Importe (Bs)"), ("operadora", "Operadora"),
+    ]
+
+    def __init__(self, parent, tx: dict):
+        super().__init__(parent)
+        self.setWindowTitle(f"Detalle {tx['id']} — verificar y editar")
+        self.resize(760, 460)
+        layout = QHBoxLayout(self)
+
+        # Izquierda: la foto capturada, para verificar que la fila es esa tarjeta.
+        img = QLabel("(sin imagen)")
+        img.setMinimumSize(400, 400)
+        img.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        img.setStyleSheet("background:#141414;border:1px solid #3c3c3c;border-radius:8px;")
+        ruta = tx.get("imagen")
+        if ruta and os.path.exists(ruta):
+            pix = QPixmap(ruta)
+            if not pix.isNull():
+                img.setPixmap(pix.scaled(400, 400, Qt.AspectRatioMode.KeepAspectRatio,
+                                         Qt.TransformationMode.SmoothTransformation))
+        layout.addWidget(img, 1)
+
+        # Derecha: campos editables + validación.
+        col = QVBoxLayout()
+        titulo = QLabel(f"{tx['id']} · estado: {tx['estado']}")
+        titulo.setStyleSheet("font-size:15px;font-weight:700;")
+        col.addWidget(titulo)
+        form = QFormLayout()
+        d = tx.get("datos", {})
+        self.entradas = {}
+        for clave, etiqueta in self.CAMPOS:
+            le = QLineEdit(str(d.get(clave) or ""))
+            self.entradas[clave] = le
+            form.addRow(etiqueta + ":", le)
+        col.addLayout(form)
+
+        self.lbl_estado_val = QLabel()
+        self.lbl_estado_val.setWordWrap(True)
+        col.addWidget(self.lbl_estado_val)
+        col.addStretch(1)
+
+        botones = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        botones.accepted.connect(self.accept)
+        botones.rejected.connect(self.reject)
+        col.addWidget(botones)
+        layout.addLayout(col, 1)
+        self._revalidar()
+        for le in self.entradas.values():
+            le.textChanged.connect(self._revalidar)
+
+    def datos_editados(self) -> dict:
+        base = {c: e.text().strip() or None for c, e in self.entradas.items()}
+        base["origen"] = "manual"
+        return base
+
+    def _revalidar(self):
+        d = self.datos_editados()
+        errores = validar(DatosFiscales(**{k: d.get(k) for k in
+                          ("nit", "numero_factura", "autorizacion", "fecha",
+                           "importe", "operadora", "origen")}))
+        if errores:
+            self.lbl_estado_val.setText("⚠ " + "  ·  ".join(errores))
+            self.lbl_estado_val.setStyleSheet("color:#f0a020;")
+        else:
+            self.lbl_estado_val.setText("✔ Datos válidos.")
+            self.lbl_estado_val.setStyleSheet("color:#3fb950;")
 
 
 class VentanaPrincipal(QMainWindow):
@@ -180,26 +257,42 @@ class VentanaPrincipal(QMainWindow):
             self._labels_contador[estado] = caja
         der.addLayout(self.contadores_layout)
 
-        self.tabla = QTableWidget(0, 6)
+        self.tabla = QTableWidget(0, 8)
         self.tabla.setAlternatingRowColors(True)
         self.tabla.verticalHeader().setVisible(False)
         self.tabla.setHorizontalHeaderLabels(
-            ["ID", "Estado", "NIT", "N° Factura", "Fecha", "Importe"])
+            ["Tarjeta", "ID", "Estado", "NIT", "N° Factura", "Autorización",
+             "Fecha", "Importe"])
         self.tabla.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch)
+        self.tabla.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.ResizeToContents)
+        self.tabla.verticalHeader().setDefaultSectionSize(56)
+        self.tabla.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.tabla.cellDoubleClicked.connect(self._abrir_detalle_fila)
+        pista = QLabel("Doble clic en una fila para ver la foto en grande y editar los campos.")
+        pista.setStyleSheet("color:#8a8a8a;font-size:11px;")
+        der.addWidget(pista)
         der.addWidget(self.tabla, 1)
 
         acciones = QHBoxLayout()
+        self.btn_ver = QPushButton("🔍 Ver / Editar")
+        self.btn_ver.clicked.connect(self._abrir_detalle_seleccion)
         self.btn_procesar = QPushButton("▶ Procesar en SIAT")
         self.btn_procesar.setObjectName("btnPrimario")
         self.btn_procesar.clicked.connect(self.procesar_siat)
         self.btn_excel = QPushButton("⬇ Exportar Excel RCV")
         self.btn_excel.clicked.connect(self.exportar_excel)
-        self.btn_saltar = QPushButton("⏭ Marcar saltado")
+        self.btn_saltar = QPushButton("⏭ Saltado")
         self.btn_saltar.clicked.connect(lambda: self._cambiar_estado_seleccion("saltado"))
         self.btn_reintentar = QPushButton("↺ Reintentar")
         self.btn_reintentar.clicked.connect(lambda: self._cambiar_estado_seleccion("pendiente"))
-        for b in (self.btn_procesar, self.btn_excel, self.btn_saltar, self.btn_reintentar):
+        self.btn_borrar = QPushButton("🗑 Borrar")
+        self.btn_borrar.clicked.connect(self._borrar_seleccion)
+        self.btn_vaciar = QPushButton("Vaciar todo")
+        self.btn_vaciar.clicked.connect(self._vaciar_libro)
+        for b in (self.btn_ver, self.btn_procesar, self.btn_excel, self.btn_saltar,
+                  self.btn_reintentar, self.btn_borrar, self.btn_vaciar):
             acciones.addWidget(b)
         der.addLayout(acciones)
         layout.addLayout(der, 1)
@@ -278,15 +371,18 @@ class VentanaPrincipal(QMainWindow):
 
         self._asegurar_ocr()
         resultado = self.pipeline.procesar_imagen(frame)
+        # Se agrega SIEMPRE (con su foto), válida o no, para poder corregir a mano.
+        tx = self.libro.agregar(resultado.datos, imagen=ruta)
         if resultado.es_valido:
             self.led.verde()
-            tx = self.libro.agregar(resultado.datos)
             self.etiqueta_lectura.setText(
                 f"✔ {tx} [{resultado.metodo}] NIT {resultado.datos.nit} · "
                 f"Bs {resultado.datos.importe}")
         else:
             self.led.rojo()
-            self.etiqueta_lectura.setText("Lectura inválida: " + "; ".join(resultado.errores))
+            self.etiqueta_lectura.setText(
+                f"⚠ {tx} necesita revisión: {'; '.join(resultado.errores)}. "
+                "Doble clic en la fila para corregir.")
         self._refrescar_tabla()
 
     # ── LED + tabla + contadores ──────────────────────────────────────────
@@ -300,17 +396,74 @@ class VentanaPrincipal(QMainWindow):
         self.tabla.setRowCount(len(transacciones))
         for fila, tx in enumerate(transacciones):
             d = tx["datos"]
-            valores = [tx["id"], tx["estado"], d.get("nit", ""),
-                       d.get("numero_factura", ""), d.get("fecha", ""),
-                       d.get("importe", "")]
-            for col, val in enumerate(valores):
-                item = QTableWidgetItem(str(val))
-                if col == 1:
-                    item.setBackground(Qt.GlobalColor.transparent)
-                self.tabla.setItem(fila, col, item)
+
+            # Columna 0: miniatura de la foto capturada.
+            mini = QLabel()
+            mini.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            ruta = tx.get("imagen")
+            if ruta and os.path.exists(ruta):
+                pix = QPixmap(ruta)
+                if not pix.isNull():
+                    mini.setPixmap(pix.scaled(72, 50, Qt.AspectRatioMode.KeepAspectRatio,
+                                              Qt.TransformationMode.SmoothTransformation))
+            else:
+                mini.setText("—")
+            self.tabla.setCellWidget(fila, 0, mini)
+
+            invalido = bool(validar(DatosFiscales(**{k: d.get(k) for k in
+                            ("nit", "numero_factura", "autorizacion", "fecha",
+                             "importe", "operadora", "origen")})))
+            estado_txt = tx["estado"] + ("  ⚠" if invalido else "")
+            valores = [tx["id"], estado_txt, d.get("nit", ""),
+                       d.get("numero_factura", ""), d.get("autorizacion", ""),
+                       d.get("fecha", ""), d.get("importe", "")]
+            for offset, val in enumerate(valores):
+                item = QTableWidgetItem(str(val or ""))
+                if invalido:
+                    item.setForeground(Qt.GlobalColor.red)
+                self.tabla.setItem(fila, offset + 1, item)
         c = self.libro.contadores()
         for estado, label in self._labels_contador.items():
             label.setText(str(c[estado]))
+
+    def _tx_de_fila(self, fila: int) -> dict | None:
+        if fila < 0:
+            return None
+        item = self.tabla.item(fila, 1)  # columna ID
+        if item is None:
+            return None
+        tx_id = item.text()
+        return next((t for t in self.libro.todas() if t["id"] == tx_id), None)
+
+    def _abrir_detalle_fila(self, fila: int, _col: int = 0):
+        tx = self._tx_de_fila(fila)
+        if tx is None:
+            return
+        dlg = DialogoDetalle(self, tx)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self.libro.actualizar_datos(tx["id"], dlg.datos_editados())
+            self._refrescar_tabla()
+
+    def _abrir_detalle_seleccion(self):
+        self._abrir_detalle_fila(self.tabla.currentRow())
+
+    def _borrar_seleccion(self):
+        tx = self._tx_de_fila(self.tabla.currentRow())
+        if tx is None:
+            return
+        r = QMessageBox.question(
+            self, "Borrar", f"¿Borrar la transacción {tx['id']}?")
+        if r == QMessageBox.StandardButton.Yes:
+            self.libro.eliminar(tx["id"])
+            self._refrescar_tabla()
+
+    def _vaciar_libro(self):
+        r = QMessageBox.question(
+            self, "Vaciar todo",
+            "¿Borrar TODAS las transacciones del Libro Mayor? Esto no se puede deshacer.")
+        if r == QMessageBox.StandardButton.Yes:
+            self.libro.vaciar()
+            self._refrescar_tabla()
 
     def _cambiar_estado_seleccion(self, estado: str):
         fila = self.tabla.currentRow()

@@ -181,8 +181,9 @@ def extraer_de_lineas(lineas: list[str]) -> DatosFiscales:
     if fecha_emision:
         datos.fecha = fecha_emision
 
-    # Si la operadora es conocida pero el OCR no leyó el NIT, se infiere.
-    if datos.nit is None and datos.operadora:
+    # El emisor de estas tarjetas ES la operadora, así que su NIT oficial es la
+    # fuente de verdad: se usa aunque el OCR lo haya leído mal o no lo haya leído.
+    if datos.operadora:
         for nit, nombre in NITS_OPERADORAS.items():
             if nombre == datos.operadora:
                 datos.nit = nit
