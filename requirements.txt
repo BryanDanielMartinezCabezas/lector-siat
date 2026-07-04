@@ -1,7 +1,11 @@
-opencv-python>=4.9
+# Versiones fijadas a un conjunto que funciona en conjunto en Windows + Python 3.11.
+# Nota: paddlepaddle 3.x falla con oneDNN "fused_conv2d" en CPU; se usa 2.6.2.
+# paddleocr 2.7.3 requiere numpy 1.x (por eso numpy<2).
+numpy==1.26.4
+opencv-python==4.6.0.66
 pyzbar>=0.1.9
-paddleocr>=2.7,<3
-paddlepaddle>=2.6
+paddleocr==2.7.3
+paddlepaddle==2.6.2
 selenium>=4.20
 flask>=3.0
 openpyxl>=3.1
@@ -9,4 +13,3 @@ PyQt6>=6.6
 pytest>=8.0
 qrcode[pil]>=7.4
 pillow>=10.0
-numpy<2
