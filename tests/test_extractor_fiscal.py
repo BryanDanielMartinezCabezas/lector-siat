@@ -88,3 +88,16 @@ def test_entel_droidcam_no_confunde_factura_con_telefono_ni_autorizacion():
     assert d.nit == "1020703023"
     assert d.numero_factura == "162452780"   # no 2141010 (tel) ni 123189 (autoriz.)
     assert d.importe == "10.00"
+
+
+def test_prefiere_fecha_de_emision_sobre_fecha_de_uso():
+    # La fecha de uso (2029) aparece primero, pero se debe declarar la de emisión.
+    lineas = ["10/11/2029", "Raspe con cuidado",
+              "FECHALIMITEDEEMISION:31/12/2026", "otra linea"]
+    assert extraer_de_lineas(lineas).fecha == "31/12/2026"
+
+
+def test_fecha_emision_aunque_ocr_destroce_la_palabra():
+    # OCR real de Ovando: "TSION:01/06/2027" (EMISION destrozada) debe reconocerse.
+    lineas = ["10/11/2029", "TSION:01/06/2027"]
+    assert extraer_de_lineas(lineas).fecha == "01/06/2027"

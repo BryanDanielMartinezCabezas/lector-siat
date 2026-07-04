@@ -78,6 +78,20 @@ def _extraer_nit(linea: str) -> str | None:
     return None
 
 
+# Fragmentos que el OCR deja de "EMISIÓN" (EMISION, BMISION, EMISTON, TSION...).
+_RE_EMISION = re.compile(r"EMIS|MISION|SION")
+
+
+def _fecha_de_emision(lineas: list[str]) -> str | None:
+    """Fecha en una línea que menciona (aunque mal escrita) la emisión."""
+    for linea in lineas:
+        if _RE_EMISION.search(linea.upper()):
+            fecha = _extraer_fecha(linea)
+            if fecha:
+                return fecha
+    return None
+
+
 def _extraer_fecha(linea: str) -> str | None:
     larga = _RE_FECHA_LARGA.search(linea)
     if larga:
@@ -159,6 +173,13 @@ def extraer_de_lineas(lineas: list[str]) -> DatosFiscales:
             m = _RE_AUTORIZACION.search(linea)
             if m:
                 datos.autorizacion = m.group(1)
+
+    # Preferir la FECHA LÍMITE DE EMISIÓN (la que pide el SIAT) sobre la fecha de
+    # uso/vencimiento, que suele aparecer primero. El OCR destroza "EMISIÓN"
+    # (EMISION, BMISION, EMISTON, TSION...), por eso se buscan fragmentos.
+    fecha_emision = _fecha_de_emision(lineas)
+    if fecha_emision:
+        datos.fecha = fecha_emision
 
     # Si la operadora es conocida pero el OCR no leyó el NIT, se infiere.
     if datos.nit is None and datos.operadora:

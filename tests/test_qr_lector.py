@@ -39,3 +39,19 @@ def test_imagen_sin_qr_devuelve_none():
 
 def test_contenido_vacio_devuelve_none():
     assert parsear_contenido_qr("") is None
+
+
+def test_qr_entel_real_autorizacion_mas_factura():
+    # Formato real del QR Entel (SFV): autorización (termina en letra) + N° factura.
+    d = parsear_contenido_qr("123694AEE6991B080355532")
+    assert d.autorizacion == "123694AEE6991B"
+    assert d.numero_factura == "80355532"      # dígitos finales, ceros a la izq. quitados
+    assert d.operadora == "ENTEL"
+    assert d.nit == "1020703023"               # inferido de la operadora (el QR no lo trae)
+    assert d.origen == "qr"
+
+
+def test_qr_entel_segundo_ejemplo():
+    d = parsear_contenido_qr("12387D36F6E81B016199517")
+    assert d.autorizacion == "12387D36F6E81B"
+    assert d.numero_factura == "16199517"
