@@ -10,13 +10,37 @@ import cv2
 
 
 class Camara:
-    def __init__(self, indice: int = 0):
+    def __init__(self, indice: int = 0, ancho: int = 1280, alto: int = 720):
         self.indice = indice
+        self.ancho = ancho
+        self.alto = alto
         self._cap = None
 
     def abrir(self) -> bool:
         self._cap = cv2.VideoCapture(self.indice, cv2.CAP_DSHOW)
-        return self._cap is not None and self._cap.isOpened()
+        if self._cap is not None and self._cap.isOpened():
+            # Pedir la mayor resolución posible: nitidez = QR y OCR legibles.
+            self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.ancho)
+            self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.alto)
+            return True
+        return False
+
+    def cambiar_a(self, indice: int) -> bool:
+        """Cierra la cámara actual y abre otra por índice (ej. DroidCam)."""
+        self.cerrar()
+        self.indice = indice
+        return self.abrir()
+
+    @staticmethod
+    def listar_camaras(maximo: int = 6) -> list[int]:
+        """Devuelve los índices de cámaras disponibles (0..maximo-1)."""
+        disponibles = []
+        for i in range(maximo):
+            cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
+            if cap is not None and cap.isOpened():
+                disponibles.append(i)
+            cap.release()
+        return disponibles
 
     def esta_abierta(self) -> bool:
         return self._cap is not None and self._cap.isOpened()

@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QLabel, QPushButton, QVBoxLayout,
     QHBoxLayout, QGridLayout, QTableWidget, QTableWidgetItem, QDialog,
     QLineEdit, QFormLayout, QDialogButtonBox, QMessageBox, QFileDialog,
-    QHeaderView,
+    QHeaderView, QComboBox,
 )
 
 from src.captura.camara import Camara
@@ -115,6 +115,19 @@ class VentanaPrincipal(QMainWindow):
         izq.addWidget(titulo_app)
         izq.addWidget(subtitulo)
 
+        # Selector de cámara (webcam interna, DroidCam, USB, etc.)
+        fila_cam = QHBoxLayout()
+        fila_cam.addWidget(QLabel("Cámara:"))
+        self.selector_camara = QComboBox()
+        self.selector_camara.currentIndexChanged.connect(self._cambiar_camara)
+        fila_cam.addWidget(self.selector_camara, 1)
+        self.btn_refrescar_cam = QPushButton("⟳")
+        self.btn_refrescar_cam.setFixedWidth(40)
+        self.btn_refrescar_cam.setToolTip("Volver a buscar cámaras")
+        self.btn_refrescar_cam.clicked.connect(self._poblar_camaras)
+        fila_cam.addWidget(self.btn_refrescar_cam)
+        izq.addLayout(fila_cam)
+
         self.vista_camara = QLabel("Iniciando cámara…")
         self.vista_camara.setFixedSize(480, 360)
         self.vista_camara.setStyleSheet(
@@ -193,12 +206,37 @@ class VentanaPrincipal(QMainWindow):
 
     # ── Cámara ────────────────────────────────────────────────────────────
     def _iniciar_camara(self):
-        if self.camara.abrir():
-            self._timer = QTimer(self)
-            self._timer.timeout.connect(self._actualizar_frame)
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._actualizar_frame)
+        self._poblar_camaras()
+
+    def _poblar_camaras(self):
+        """Busca cámaras disponibles y las carga en el selector."""
+        self.selector_camara.blockSignals(True)
+        self.selector_camara.clear()
+        indices = Camara.listar_camaras()
+        if not indices:
+            self.selector_camara.addItem("Sin cámara", -1)
+            self.vista_camara.setText(
+                "Cámara no disponible\n(use captura manual de archivo)")
+        else:
+            for idx in indices:
+                etiqueta = "Cámara 0 (interna)" if idx == 0 else f"Cámara {idx} (DroidCam/USB)"
+                self.selector_camara.addItem(etiqueta, idx)
+        self.selector_camara.blockSignals(False)
+        if indices:
+            self._cambiar_camara()
+
+    def _cambiar_camara(self):
+        indice = self.selector_camara.currentData()
+        if indice is None or indice < 0:
+            return
+        self._timer.stop()
+        if self.camara.cambiar_a(indice):
+            self.etiqueta_lectura.setText(f"Cámara {indice} activa. Listo para capturar.")
             self._timer.start(33)  # ~30 fps
         else:
-            self.vista_camara.setText("Cámara no disponible\n(use captura manual de archivo)")
+            self.vista_camara.setText(f"No se pudo abrir la cámara {indice}.")
 
     def _actualizar_frame(self):
         frame = self.camara.leer_frame()

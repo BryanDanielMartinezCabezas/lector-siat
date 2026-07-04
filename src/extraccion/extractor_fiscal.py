@@ -32,8 +32,9 @@ _MESES = {
 }
 _RE_MONTO_BS = re.compile(r"(?:Bs\.?|BS\.?)\s*:?\s*([\d.,]+)", re.IGNORECASE)
 _RE_NUMERO = re.compile(r"(\d{1,3}(?:\.\d{3})+|\d{4,12})")
+# Acepta "FACTURA N°:", "FACTURA", "NRO =", "N° FACTURA", "NUMERO DE FACTURA".
 _RE_ETIQUETA_FACTURA = re.compile(
-    r"FACTURA\s*N[°ºO]?[_:]*|NRO\.?\s*[=:]|N[°º]\s*FACTURA|NUMERO\s*DE\s*FACTURA",
+    r"\bFACTURA\b|NRO\.?\s*[=:]|N[°º]\s*FACTURA|NUMERO\s*DE\s*FACTURA",
     re.IGNORECASE,
 )
 _RE_AUTORIZACION = re.compile(
@@ -141,6 +142,7 @@ def extraer_de_lineas(lineas: list[str]) -> DatosFiscales:
     datos.operadora = detectar_operadora(texto_completo)
 
     for i, linea in enumerate(lineas):
+        anterior = lineas[i - 1] if i > 0 else ""
         siguiente = lineas[i + 1] if i + 1 < len(lineas) else ""
         upper = linea.upper()
 
@@ -160,19 +162,47 @@ def extraer_de_lineas(lineas: list[str]) -> DatosFiscales:
                 datos.autorizacion = m.group(1)
 
         if datos.numero_factura is None and _RE_ETIQUETA_FACTURA.search(linea):
-            # El número puede estar en la misma línea o en la siguiente (Entel, Viva).
+            # El número puede ir en la misma línea, en la siguiente (Entel, Viva)
+            # o en la anterior (el rótulo "FACTURA" a veces queda debajo del número).
             resto = _RE_ETIQUETA_FACTURA.sub("", linea)
-            candidato = _RE_NUMERO.search(resto) or _RE_NUMERO.search(siguiente)
+            candidato = (_RE_NUMERO.search(resto) or _RE_NUMERO.search(siguiente)
+                         or _RE_NUMERO.search(anterior))
             if candidato and not _es_numero_ignorable(
                 candidato.group(1).replace(".", ""), linea
             ):
                 datos.numero_factura = _normalizar_numero_factura(candidato.group(1))
 
+    # Si la operadora es conocida pero el OCR no leyó el NIT, se infiere.
+    if datos.nit is None and datos.operadora:
+        for nit, nombre in NITS_OPERADORAS.items():
+            if nombre == datos.operadora:
+                datos.nit = nit
+                break
+
     # Respaldo del importe: mayor número con decimales cerca de una etiqueta de total.
     if datos.importe is None:
         datos.importe = _importe_de_respaldo(lineas)
 
+    # Último recurso para el número de factura: una línea que sea solo un número
+    # de 6 a 12 dígitos, que no sea el NIT, ni el importe, ni un teléfono/lote.
+    if datos.numero_factura is None:
+        datos.numero_factura = _numero_factura_de_respaldo(lineas, datos)
+
     return datos
+
+
+def _numero_factura_de_respaldo(lineas: list[str], datos: DatosFiscales) -> str | None:
+    for linea in lineas:
+        texto = linea.strip()
+        if not re.fullmatch(r"\d[\d.]{5,13}", texto):
+            continue
+        numero = texto.replace(".", "")
+        if not (6 <= len(numero) <= 12):
+            continue
+        if numero == datos.nit or _es_numero_ignorable(numero, linea):
+            continue
+        return _normalizar_numero_factura(numero)
+    return None
 
 
 def _importe_de_respaldo(lineas: list[str]) -> str | None:

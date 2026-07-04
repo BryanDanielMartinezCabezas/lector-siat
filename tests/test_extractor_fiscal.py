@@ -54,3 +54,18 @@ def test_detectar_operadora_por_texto():
 
 def test_detectar_operadora_por_nit_en_texto():
     assert detectar_operadora("emisor 1025260015 gracias") == "VIVA"
+
+
+# Regresión: líneas reales del OCR de una tarjeta ENTEL capturada (2026-07-04).
+# El número de factura (162452779) va en una etiqueta "FACTURA" sin "N°" y en la
+# línea ANTERIOR al rótulo; antes el extractor lo ignoraba.
+LINEAS_ENTEL_REAL = [
+    "162452779", "FACTURA", "ORIGINAL", "Bs10", "10/11/2029",
+    "Raspe con cuidado", "FCHALEN 1/1/2027", "60349064", "12779",
+]
+
+
+def test_entel_real_extrae_numero_factura_sin_etiqueta_completa():
+    d = extraer_de_lineas(LINEAS_ENTEL_REAL)
+    assert d.numero_factura == "162452779"
+    assert d.importe == "10.00"
