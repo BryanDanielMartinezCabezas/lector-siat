@@ -142,7 +142,6 @@ def extraer_de_lineas(lineas: list[str]) -> DatosFiscales:
     datos.operadora = detectar_operadora(texto_completo)
 
     for i, linea in enumerate(lineas):
-        anterior = lineas[i - 1] if i > 0 else ""
         siguiente = lineas[i + 1] if i + 1 < len(lineas) else ""
         upper = linea.upper()
 
@@ -161,17 +160,6 @@ def extraer_de_lineas(lineas: list[str]) -> DatosFiscales:
             if m:
                 datos.autorizacion = m.group(1)
 
-        if datos.numero_factura is None and _RE_ETIQUETA_FACTURA.search(linea):
-            # El número puede ir en la misma línea, en la siguiente (Entel, Viva)
-            # o en la anterior (el rótulo "FACTURA" a veces queda debajo del número).
-            resto = _RE_ETIQUETA_FACTURA.sub("", linea)
-            candidato = (_RE_NUMERO.search(resto) or _RE_NUMERO.search(siguiente)
-                         or _RE_NUMERO.search(anterior))
-            if candidato and not _es_numero_ignorable(
-                candidato.group(1).replace(".", ""), linea
-            ):
-                datos.numero_factura = _normalizar_numero_factura(candidato.group(1))
-
     # Si la operadora es conocida pero el OCR no leyó el NIT, se infiere.
     if datos.nit is None and datos.operadora:
         for nit, nombre in NITS_OPERADORAS.items():
@@ -183,25 +171,59 @@ def extraer_de_lineas(lineas: list[str]) -> DatosFiscales:
     if datos.importe is None:
         datos.importe = _importe_de_respaldo(lineas)
 
-    # Último recurso para el número de factura: una línea que sea solo un número
-    # de 6 a 12 dígitos, que no sea el NIT, ni el importe, ni un teléfono/lote.
-    if datos.numero_factura is None:
-        datos.numero_factura = _numero_factura_de_respaldo(lineas, datos)
+    datos.numero_factura = _extraer_numero_factura(lineas, datos)
 
     return datos
 
 
-def _numero_factura_de_respaldo(lineas: list[str], datos: DatosFiscales) -> str | None:
+# Rótulo del número de factura ("N° FACTURA", "NFACTURA", "FACTURA N°", "NRO",
+# "NUMERO DE FACTURA"). NO incluye la palabra "FACTURA" suelta, para no confundir
+# con el teléfono o la autorización que suelen ir junto a ella.
+_RE_ROTULO_FACTURA = re.compile(
+    r"N\s*[°º]?\s*FACTURA|FACTURA\s*N\s*[°º:]|\bNRO\b|NUMERO\s*DE\s*FACTURA",
+    re.IGNORECASE,
+)
+
+
+def _linea_pura_numerica(linea: str) -> str | None:
+    """Devuelve el número si la línea es SOLO dígitos (con puntos), 6–12 dígitos."""
+    texto = linea.strip()
+    if not re.fullmatch(r"\d[\d.]{4,13}", texto):
+        return None
+    numero = texto.replace(".", "")
+    return numero if 6 <= len(numero) <= 12 else None
+
+
+def _valido_factura(numero: str, contexto: str, datos: DatosFiscales) -> bool:
+    if numero == datos.nit:
+        return False
+    if datos.autorizacion and numero in datos.autorizacion.replace(".", ""):
+        return False
+    return not _es_numero_ignorable(numero, contexto)
+
+
+def _extraer_numero_factura(lineas: list[str], datos: DatosFiscales) -> str | None:
+    # 1) Junto a un rótulo de factura: número en la misma línea o en la ventana
+    #    siguiente (el número real suele ser una línea puramente numérica).
+    for i, linea in enumerate(lineas):
+        if not _RE_ROTULO_FACTURA.search(linea):
+            continue
+        resto = _RE_ROTULO_FACTURA.sub(" ", linea)
+        m = re.search(r"\d{1,3}(?:\.\d{3})+|\d{6,12}", resto)
+        if m:
+            numero = m.group(0).replace(".", "")
+            if _valido_factura(numero, linea, datos):
+                return _normalizar_numero_factura(numero)
+        for j in range(i + 1, min(i + 5, len(lineas))):
+            numero = _linea_pura_numerica(lineas[j])
+            if numero and _valido_factura(numero, lineas[j], datos):
+                return _normalizar_numero_factura(numero)
+
+    # 2) Sin rótulo legible: primera línea puramente numérica válida.
     for linea in lineas:
-        texto = linea.strip()
-        if not re.fullmatch(r"\d[\d.]{5,13}", texto):
-            continue
-        numero = texto.replace(".", "")
-        if not (6 <= len(numero) <= 12):
-            continue
-        if numero == datos.nit or _es_numero_ignorable(numero, linea):
-            continue
-        return _normalizar_numero_factura(numero)
+        numero = _linea_pura_numerica(linea)
+        if numero and _valido_factura(numero, linea, datos):
+            return _normalizar_numero_factura(numero)
     return None
 
 

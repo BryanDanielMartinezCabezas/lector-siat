@@ -69,3 +69,22 @@ def test_entel_real_extrae_numero_factura_sin_etiqueta_completa():
     d = extraer_de_lineas(LINEAS_ENTEL_REAL)
     assert d.numero_factura == "162452779"
     assert d.importe == "10.00"
+
+
+# Regresión 2: captura nítida con DroidCam. El rótulo real "N° FACTURA" lo lee el
+# OCR como 'NFACTURA' (sin °), y el número va DOS líneas abajo. Antes el extractor
+# agarraba el teléfono (2141010) o la autorización (123189) por error.
+LINEAS_ENTEL_DROIDCAM = [
+    "EMPRESANACIONALDE", "NIT:1020703023", "TELECOMUNICACIONESS.A", "NFACTURA",
+    "CASA MATRiZ:CFedencoZuazo N1771", "162452780",
+    "Edil Tower-Zona Central.Tel2141010", "LaPaz-Bolivia", "FACTURA",
+    "NAUTORZACON123189FFD1971B", "ORIGINAL", "Bs10", "10/11/2029",
+    "Raspe con cuidado", "FECHALMITEDEEMSON11/11/2027", "LOT349064", "12780",
+]
+
+
+def test_entel_droidcam_no_confunde_factura_con_telefono_ni_autorizacion():
+    d = extraer_de_lineas(LINEAS_ENTEL_DROIDCAM)
+    assert d.nit == "1020703023"
+    assert d.numero_factura == "162452780"   # no 2141010 (tel) ni 123189 (autoriz.)
+    assert d.importe == "10.00"
