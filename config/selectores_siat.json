@@ -1,0 +1,28 @@
+{
+  "_nota": "Perfiles de URLs y selectores CSS. Regla del proyecto: nos acoplamos a la página real; el mock replica los ids reales capturados con Playwright (referencia_siat/).",
+  "mock": {
+    "url_login": "http://127.0.0.1:5001/",
+    "url_registro_compra": "http://127.0.0.1:5001/rcv/compras/registro",
+    "login": { "nit": "#nitCur", "email": "#email", "password": "#password", "boton": "#kc-login" },
+    "compra": {
+      "nit_proveedor": "#nitProveedor",
+      "codigo_autorizacion": "#codigoAutorizacion",
+      "numero_factura": "#numeroFactura",
+      "fecha": "#fechaFactura",
+      "importe": "#importeTotal",
+      "tipo_compra": "#tipoCompra",
+      "codigo_control": "#codigoControl",
+      "boton_registrar": "#btnRegistrar",
+      "mensaje_exito": ".mensaje-exito",
+      "mensaje_error": ".mensaje-error"
+    }
+  },
+  "real": {
+    "url_login": "https://siat.impuestos.gob.bo/",
+    "url_registro_compra": "PENDIENTE_CAPTURAR_LOGUEADO",
+    "login": { "nit": "#nitCur", "email": "#email", "password": "#password", "boton": "#kc-login" },
+    "compra": {
+      "_nota": "Capturar con Playwright el formulario logueado del RCV (mismas claves que el perfil mock) el día del dry-run."
+    }
+  }
+}
