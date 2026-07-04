@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Inicia sesión en Sistema Integrado de la Administración Tributaria</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='estilo.css') }}">
+</head>
+<body>
+  <div class="ovt-marca">Oficina Virtual <span>Tributaria</span></div>
+  <div class="tarjeta">
+    <h1>IMPUESTOS NACIONALES 🇧🇴</h1>
+    <p class="subtitulo">Inicia sesión</p>
+
+    {% if error %}<div class="mensaje-error">{{ error }}</div>{% endif %}
+
+    <form id="kc-form-login" action="{{ url_for('hacer_login') }}" method="post">
+      <div class="campo">
+        <label for="nitCur">NIT / CUR / CI</label>
+        <input class="ovt-input" id="nitCur" name="nitCur" type="text"
+               placeholder="Ejm: 123456-1X o 123456-78" tabindex="1" autofocus>
+      </div>
+      <div class="campo">
+        <label for="email">Correo electrónico</label>
+        <input class="ovt-input" id="email" name="email" type="text"
+               placeholder="Ejm: usuario@correo.com" tabindex="2">
+      </div>
+      <div class="campo">
+        <label for="password">Contraseña</label>
+        <input class="ovt-input" id="password" name="password" type="password"
+               placeholder="••••••••" tabindex="3">
+      </div>
+      <button class="btnColorLoginOvt" id="kc-login" name="login" type="submit" tabindex="4">
+        INGRESAR
+      </button>
+    </form>
+
+    <div class="chips">
+      <a class="link-login-chip" href="#">Olvide mi contraseña</a>
+      <a class="link-login-chip" href="#">Iniciar sesión en OVT/SIAT v1</a>
+      <a class="link-login-chip" href="#">Registrarme como Ciudadano</a>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,163 @@
+/* Réplica de la estética del portal SIAT real (Oficina Virtual Tributaria).
+   Fuente: referencia_siat/siat-login-real.png — fondo teal oscuro con patrón de
+   circuitos, tarjeta central con borde neón, tipografía sans. */
+
+:root {
+  --siat-fondo: #0b2b30;
+  --siat-fondo2: #0e363c;
+  --siat-tarjeta: #103138;
+  --siat-neon: #21e6a4;
+  --siat-neon-b: #17c78d;
+  --siat-texto: #e6f2f0;
+  --siat-texto-tenue: #9fc4bf;
+  --siat-input: #0d2a30;
+  --siat-borde: #1c4a52;
+  --siat-error: #ff6b6b;
+  --siat-exito: #21e6a4;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color: var(--siat-texto);
+  background:
+    radial-gradient(circle at 20% 30%, rgba(33, 230, 164, 0.06) 0 2px, transparent 3px) 0 0/48px 48px,
+    radial-gradient(circle at 70% 60%, rgba(33, 230, 164, 0.05) 0 2px, transparent 3px) 0 0/64px 64px,
+    linear-gradient(160deg, var(--siat-fondo), var(--siat-fondo2));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.ovt-marca {
+  text-align: center;
+  margin-bottom: 8px;
+  color: var(--siat-neon);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+.ovt-marca span { color: var(--siat-texto); }
+
+.tarjeta {
+  width: 100%;
+  max-width: 440px;
+  background: var(--siat-tarjeta);
+  border: 1px solid var(--siat-neon);
+  border-radius: 18px;
+  box-shadow: 0 0 24px rgba(33, 230, 164, 0.25), inset 0 0 0 1px rgba(33,230,164,0.08);
+  padding: 32px 34px;
+}
+
+.tarjeta h1 {
+  text-align: center;
+  font-size: 20px;
+  letter-spacing: 1px;
+  margin: 0 0 4px;
+}
+.tarjeta .subtitulo {
+  text-align: center;
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0 0 24px;
+}
+
+.campo { margin-bottom: 18px; }
+.campo label {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  color: var(--siat-texto-tenue);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+}
+
+.ovt-input {
+  width: 100%;
+  background: var(--siat-input);
+  border: 1px solid var(--siat-borde);
+  border-radius: 10px;
+  color: var(--siat-texto);
+  font-size: 15px;
+  padding: 13px 14px;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.ovt-input:focus {
+  border-color: var(--siat-neon);
+  box-shadow: 0 0 0 3px rgba(33, 230, 164, 0.15);
+}
+
+select.ovt-input { appearance: none; cursor: pointer; }
+
+.btnColorLoginOvt {
+  width: 100%;
+  background: var(--siat-neon);
+  color: #04231c;
+  border: none;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  padding: 14px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.btnColorLoginOvt:hover { background: var(--siat-neon-b); }
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  margin-top: 18px;
+}
+.link-login-chip {
+  background: rgba(33, 230, 164, 0.08);
+  border: 1px solid var(--siat-borde);
+  color: var(--siat-texto-tenue);
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.mensaje-exito {
+  background: rgba(33, 230, 164, 0.12);
+  border: 1px solid var(--siat-exito);
+  color: var(--siat-exito);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 18px;
+  font-size: 14px;
+}
+.mensaje-error {
+  background: rgba(255, 107, 107, 0.12);
+  border: 1px solid var(--siat-error);
+  color: var(--siat-error);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 18px;
+  font-size: 14px;
+}
+
+.menu-apps { display: grid; gap: 16px; margin-top: 8px; }
+.app-card {
+  background: var(--siat-input);
+  border: 1px solid var(--siat-borde);
+  border-radius: 12px;
+  padding: 18px;
+  text-decoration: none;
+  color: var(--siat-texto);
+}
+.app-card h3 { margin: 0 0 6px; font-size: 15px; color: var(--siat-neon); }
+.app-card p { margin: 0; font-size: 13px; color: var(--siat-texto-tenue); }
+
+.fila-doble { display: flex; gap: 16px; }
+.fila-doble .campo { flex: 1; }

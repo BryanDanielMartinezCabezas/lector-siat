@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Impuestos Nacionales</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='estilo.css') }}">
+</head>
+<body>
+  <div class="ovt-marca">Oficina Virtual <span>Tributaria</span></div>
+  <div class="tarjeta">
+    <h1>ACCESO RÁPIDO</h1>
+    <p class="subtitulo">Sub-Aplicaciones</p>
+    <div class="menu-apps">
+      <a class="app-card" href="{{ url_for('registro_compra') }}">
+        <h3>REGISTRO DE COMPRAS Y VENTAS (RCV)</h3>
+        <p>Registro de compras — facturas prevaloradas</p>
+      </a>
+      <a class="app-card" href="#">
+        <h3>REGISTRO NACIONAL DE CONTRIBUYENTES</h3>
+        <p>Subsistema de Registro Nacional de Contribuyentes</p>
+      </a>
+      <a class="app-card" href="#">
+        <h3>DECLARACIÓN JURADA V2</h3>
+        <p>Sistema de Declaraciones Juradas (ddjj)</p>
+      </a>
+    </div>
+    <div class="chips">
+      <a class="link-login-chip" href="{{ url_for('logout') }}">Cerrar sesión</a>
+    </div>
+  </div>
+</body>
+</html>
