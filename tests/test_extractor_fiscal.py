@@ -90,6 +90,16 @@ def test_entel_droidcam_no_confunde_factura_con_telefono_ni_autorizacion():
     assert d.importe == "10.00"
 
 
+def test_limpia_basura_de_ocr_en_autorizacion():
+    # El OCR lee "N° AUTORIZACIÓN" como basura y la pega al código real.
+    lineas = ["ENTEL S.A.", "NIT: 1020703023",
+              "N AUTORIZACION: OR2ACON123189FFD1971B",
+              "FACTURA N°: 162452779", "IMPORTE Bs. 10.00",
+              "FECHALIMITEDEEMISION: 31/12/2026"]
+    d = extraer_de_lineas(lineas)
+    assert d.autorizacion == "123189FFD1971B"   # sin el prefijo OR2ACON
+
+
 def test_nit_mal_leido_se_corrige_por_operadora():
     # OCR leyó mal el NIT (le comió un dígito) pero la tarjeta dice ENTEL.
     lineas = ["ENTEL S.A.", "NIT: 102010302", "FACTURA N°: 162452780",

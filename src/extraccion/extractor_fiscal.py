@@ -45,6 +45,19 @@ _PALABRAS_TELEFONO = ("TELF", "TELEF", "TELEFONO", "TELÉFONO", "TEL.", "TEL:", 
 _NUMEROS_FALSOS = {"1771", "4050", "2289"}
 
 
+def _limpiar_autorizacion(valor: str) -> str:
+    """Quita la basura de OCR del código de autorización (ej. 'OR2ACON...').
+
+    El código real es una cadena hexadecimal (0-9, A-F). Se devuelve la corrida
+    hexadecimal más larga; si no hay una razonable, se deja el valor tal cual.
+    """
+    corridas = re.findall(r"[0-9A-F]+", valor.upper())
+    if not corridas:
+        return valor
+    mejor = max(corridas, key=len)
+    return mejor if len(mejor) >= 8 else valor
+
+
 def detectar_operadora(texto: str) -> str | None:
     """Identifica la operadora por su NIT o por palabras clave en el texto."""
     upper = texto.upper()
@@ -172,7 +185,7 @@ def extraer_de_lineas(lineas: list[str]) -> DatosFiscales:
         if datos.autorizacion is None:
             m = _RE_AUTORIZACION.search(linea)
             if m:
-                datos.autorizacion = m.group(1)
+                datos.autorizacion = _limpiar_autorizacion(m.group(1))
 
     # Preferir la FECHA LÍMITE DE EMISIÓN (la que pide el SIAT) sobre la fecha de
     # uso/vencimiento, que suele aparecer primero. El OCR destroza "EMISIÓN"
