@@ -3,6 +3,7 @@
   "tamano_lote": 5,
   "timeout_confirmacion_seg": 60,
   "perfil_siat": "mock",
+  "periodo_declaracion": "",
   "ruta_libro_mayor": "datos/libro_mayor.json",
   "ruta_capturas": "datos/capturas",
   "ruta_modelos_ocr": "modelos_ocr",

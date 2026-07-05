@@ -23,7 +23,9 @@ from src.extraccion.datos_fiscales import DatosFiscales
 from src.extraccion.pipeline import PipelineExtraccion
 from src.extraccion.validador import validar
 from src.libro_mayor.libro_mayor import LibroMayor, ESTADOS
+from src.siat.periodo import fecha_declaracion
 from src.siat.excel_rcv import generar_excel_compras
+from src.siat.rellenador import cargar_registro, TecleadorReal
 from src.siat.rpa_selenium import Credenciales
 from src.gui.hilo_rpa import HiloRPA
 
@@ -278,8 +280,13 @@ class VentanaPrincipal(QMainWindow):
         acciones = QHBoxLayout()
         self.btn_ver = QPushButton("🔍 Ver / Editar")
         self.btn_ver.clicked.connect(self._abrir_detalle_seleccion)
-        self.btn_procesar = QPushButton("▶ Procesar en SIAT")
-        self.btn_procesar.setObjectName("btnPrimario")
+        self.btn_cargar = QPushButton("⌨ Cargar al SIAT")
+        self.btn_cargar.setObjectName("btnPrimario")
+        self.btn_cargar.setToolTip(
+            "Rellena el formulario real del SIAT escribiendo por teclado "
+            "(el navegador lo abres y navegas tú).")
+        self.btn_cargar.clicked.connect(self.cargar_al_siat)
+        self.btn_procesar = QPushButton("▶ Procesar (mock)")
         self.btn_procesar.clicked.connect(self.procesar_siat)
         self.btn_excel = QPushButton("⬇ Exportar Excel RCV")
         self.btn_excel.clicked.connect(self.exportar_excel)
@@ -291,8 +298,8 @@ class VentanaPrincipal(QMainWindow):
         self.btn_borrar.clicked.connect(self._borrar_seleccion)
         self.btn_vaciar = QPushButton("Vaciar todo")
         self.btn_vaciar.clicked.connect(self._vaciar_libro)
-        for b in (self.btn_ver, self.btn_procesar, self.btn_excel, self.btn_saltar,
-                  self.btn_reintentar, self.btn_borrar, self.btn_vaciar):
+        for b in (self.btn_ver, self.btn_cargar, self.btn_procesar, self.btn_excel,
+                  self.btn_saltar, self.btn_reintentar, self.btn_borrar, self.btn_vaciar):
             acciones.addWidget(b)
         der.addLayout(acciones)
         layout.addLayout(der, 1)
@@ -371,6 +378,9 @@ class VentanaPrincipal(QMainWindow):
 
         self._asegurar_ocr()
         resultado = self.pipeline.procesar_imagen(frame)
+        # Las tarjetas se declaran con el 01 del mes vigente (no con su fecha impresa).
+        resultado.datos.fecha = fecha_declaracion(
+            self.config.get("periodo_declaracion") or None)
         # Se agrega SIEMPRE (con su foto), válida o no, para poder corregir a mano.
         tx = self.libro.agregar(resultado.datos, imagen=ruta)
         if resultado.es_valido:
@@ -473,7 +483,62 @@ class VentanaPrincipal(QMainWindow):
         self.libro.marcar(tx_id, estado, "Cambio manual desde la GUI.")
         self._refrescar_tabla()
 
-    # ── RPA ───────────────────────────────────────────────────────────────
+    # ── Motor "Cargar" (teclado, formulario real del SIAT) ────────────────
+    def cargar_al_siat(self):
+        tx = self._tx_de_fila(self.tabla.currentRow())
+        if tx is None:
+            QMessageBox.information(
+                self, "Cargar al SIAT", "Selecciona en la tabla la tarjeta a cargar.")
+            return
+        errores = validar(DatosFiscales(**{k: tx["datos"].get(k) for k in
+                          ("nit", "numero_factura", "autorizacion", "fecha",
+                           "importe", "operadora", "origen")}))
+        if errores:
+            QMessageBox.warning(
+                self, "Datos incompletos",
+                "Corrige la tarjeta antes de cargarla:\n- " + "\n- ".join(errores))
+            return
+
+        instrucciones = (
+            "Se va a ESCRIBIR esta tarjeta en el formulario del SIAT por teclado.\n\n"
+            "1. Abre el SIAT en tu navegador y entra a Registro de Compras → "
+            "Agregar Registro.\n"
+            "2. Haz clic en el campo «NIT Proveedor».\n"
+            "3. Al aceptar, tienes 5 segundos para dejar el cursor ahí.\n"
+            "4. No toques el teclado ni el mouse mientras escribe.\n"
+            "5. Revisa los datos y presiona «Adicionar» tú mismo.\n\n"
+            "(Mover el mouse a una esquina de la pantalla aborta el llenado.)")
+        if QMessageBox.question(
+                self, "Cargar al SIAT", instrucciones,
+                QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel
+                ) != QMessageBox.StandardButton.Ok:
+            return
+
+        self._cargar_tx = tx
+        self._cuenta = 5
+        self.btn_cargar.setEnabled(False)
+        self._timer_carga = QTimer(self)
+        self._timer_carga.timeout.connect(self._tick_cuenta_regresiva)
+        self._tick_cuenta_regresiva()
+        self._timer_carga.start(1000)
+
+    def _tick_cuenta_regresiva(self):
+        if self._cuenta > 0:
+            self.etiqueta_lectura.setText(
+                f"⌨ Escribiendo en {self._cuenta}s… deja el cursor en el campo NIT.")
+            self._cuenta -= 1
+            return
+        self._timer_carga.stop()
+        try:
+            cargar_registro(self._cargar_tx["datos"], TecleadorReal())
+            self.etiqueta_lectura.setText(
+                f"✔ {self._cargar_tx['id']} escrito. Revisa y presiona «Adicionar».")
+        except Exception as e:  # noqa: BLE001
+            QMessageBox.critical(self, "Error al cargar", f"{type(e).__name__}: {e}")
+        finally:
+            self.btn_cargar.setEnabled(True)
+
+    # ── RPA (mock) ────────────────────────────────────────────────────────
     def procesar_siat(self):
         if not self.libro.pendientes():
             QMessageBox.information(self, "SIAT", "No hay transacciones pendientes.")
