@@ -11,7 +11,7 @@ import os
 from functools import partial
 
 import cv2
-from PyQt6.QtCore import Qt, QTimer, QSize
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QLabel, QPushButton, QVBoxLayout,
@@ -518,7 +518,10 @@ class VentanaPrincipal(QMainWindow):
             return
         self._timer_carga.stop()
         try:
-            cargar_registro(self._cargar_tx["datos"], TecleadorReal())
+            intervalo = float(self.config.get("carga_intervalo_tecla", 0.05))
+            pausa = float(self.config.get("carga_pausa_campo", 0.35))
+            cargar_registro(self._cargar_tx["datos"], TecleadorReal(intervalo),
+                            pausa=pausa)
             self.etiqueta_lectura.setText(
                 f"✔ {self._cargar_tx['id']} escrito. Revisa y presiona «Adicionar» en el SIAT.")
         except Exception as e:  # noqa: BLE001
