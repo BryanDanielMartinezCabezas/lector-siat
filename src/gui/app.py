@@ -21,7 +21,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.captura.camara import Camara
-from src.captura.indicador_led import LedVirtual
+from src.captura.indicador_led import LedVirtual, LedHardware, LedMixto
 from src.extraccion.datos_fiscales import DatosFiscales
 from src.extraccion.pipeline import PipelineExtraccion
 from src.extraccion.validador import validar
@@ -151,7 +151,9 @@ class VentanaPrincipal(QMainWindow):
         self.resize(1360, 820)
 
         self.libro = LibroMayor(config["ruta_libro_mayor"])
-        self.led = LedVirtual(al_cambiar=self._pintar_led)
+        puerto = config.get("puerto_serial", "")
+        hardware_led = LedHardware(puerto) if puerto else None
+        self.led = LedMixto(LedVirtual(al_cambiar=self._pintar_led), hardware_led)
         self.pipeline = PipelineExtraccion(ocr_motor=None)  # OCR bajo demanda
         self._ocr_cargado = False
         self.camara = Camara(config.get("camara_indice", 0))

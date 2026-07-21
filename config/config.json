@@ -8,5 +8,6 @@
   "ruta_libro_mayor": "datos/libro_mayor.json",
   "ruta_capturas": "datos/capturas",
   "ruta_modelos_ocr": "modelos_ocr",
-  "ruta_credenciales": "config/credenciales.local.json"
+  "ruta_credenciales": "config/credenciales.local.json",
+  "puerto_serial": "COM4"
 }

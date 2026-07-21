@@ -42,7 +42,30 @@ def test_led_es_subclase_de_abc():
     assert issubclass(LedHardware, IndicadorLed)
 
 
-def test_led_hardware_sin_puerto_lanza():
+def test_led_hardware_sin_puerto_no_falla():
     led = LedHardware(puerto="COM_INEXISTENTE")
-    with pytest.raises(NotImplementedError):
-        led.verde()
+    led.verde()  # no debe lanzar excepción si el puerto no existe
+    led.rojo()
+
+
+def test_led_mixto_propaga_estados():
+    estados = []
+    virtual = LedVirtual(al_cambiar=estados.append)
+    
+    comandos_enviados = []
+    class LedHardwareMock(LedHardware):
+        def __init__(self):
+            self.puerto = "MOCK"
+            self._ser = None
+        def _enviar(self, comando: str) -> None:
+            comandos_enviados.append(comando)
+            
+    hardware = LedHardwareMock()
+    from src.captura.indicador_led import LedMixto
+    
+    mixto = LedMixto(virtual, hardware)
+    mixto.verde()
+    mixto.rojo()
+    
+    assert estados == ["verde", "rojo"]
+    assert comandos_enviados == ["V", "R"]
