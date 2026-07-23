@@ -67,10 +67,17 @@ esté activo; **F9** apaga cualquiera.
    - clic en **"Nuevo Registro"** (por imagen) → el modal reabre;
    - clic en el campo **NIT** (por imagen) o confirma su auto-foco;
    - marca la tarjeta `completado` y pasa a la siguiente.
-3. **F9 detiene** el bucle de forma limpia entre tarjetas (la actual vuelve a
+3. **Pausa:** un botón **"Pausar" / "Reanudar"** (y la tecla **F7**) suspende el
+   bucle **entre tarjetas** (nunca a mitad de una); al reanudar continúa donde
+   quedó. Mientras está en pausa, no escribe ni clica nada.
+4. **F9 detiene** el bucle de forma limpia entre tarjetas (la actual vuelve a
    `pendiente` si no se completó). También lo detiene mover el mouse a una esquina
    (failsafe de pyautogui).
-4. Al terminar (o al detener), pregunta: **"¿Guardar respaldo en Excel?"** → si sí,
+5. **Reanudar/reiniciar es seguro:** el bucle solo procesa tarjetas `pendiente`;
+   las que ya quedaron `completado` **no se vuelven a tomar en cuenta** (no se
+   reprocesan ni se duplican). Así, cancelar y volver a arrancar retoma desde
+   donde se detuvo.
+6. Al terminar (o al detener), pregunta: **"¿Guardar respaldo en Excel?"** → si sí,
    genera el Excel de las tarjetas procesadas.
 
 **Nota (tuning del dry-run):** el orden exacto y si "Adicionar"/"Nuevo Registro" se
@@ -116,7 +123,7 @@ El Excel ya **no** es para subir al SIAT (Registro Masivo no lo acepta): es un
 
 | Archivo | Responsabilidad |
 |---|---|
-| `src/siat/atajos.py` | Escucha global de F8/F9 (pynput) → callbacks/señales Qt. |
+| `src/siat/atajos.py` | Escucha global de F8/F9/F7 (pynput) → callbacks/señales Qt. |
 | `src/siat/localizador.py` | Carga imágenes de calibración; localiza y clica anclas (pyautogui+OpenCV). |
 | `src/siat/rellenador.py` | (extiende) `cargar_registro` (ya existe) + `enviar_y_reabrir(localizador)` para el bucle. |
 | `src/siat/lote.py` | Orquesta el bucle "Cargar todos": recorre pendientes, llama rellenador+localizador, respeta F9/pausas, actualiza estados vía callback. |
@@ -142,7 +149,8 @@ El Excel ya **no** es para subir al SIAT (Registro Masivo no lo acepta): es un
   - `rellenador`: `enviar_y_reabrir` llama al localizador en el orden correcto (con
     localizador falso).
   - `lote`: recorre solo `pendiente`, marca `en_proceso`→`completado`, se detiene
-    ante señal de aborto, no toca `completado`/`saltado` (con tecleador y localizador falsos).
+    ante señal de aborto, **se pausa/reanuda entre tarjetas**, no toca
+    `completado`/`saltado` (con tecleador y localizador falsos).
   - `excel_rcv`: cabeceras corregidas + columna `Fecha de Registro` = hoy.
   - `atajos`: mapea F8/F9 a los callbacks (con listener falso).
 - **Manual (con 2–3 tarjetas):** afinar orden real de Adicionar/Nuevo Registro/NIT.
