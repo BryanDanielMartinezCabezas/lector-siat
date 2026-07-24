@@ -41,6 +41,12 @@ _COLORES_ESTADO = {
     "saltado": "#6e7681",
 }
 
+# Etiquetas que ve el usuario (el valor interno del estado no cambia).
+_ETIQUETA_ESTADO = {
+    "pendiente": "Por cargar", "en_proceso": "En proceso",
+    "completado": "Cargada", "saltado": "Omitida",
+}
+
 _CAMPOS_VALIDAR = ("nit", "numero_factura", "autorizacion", "fecha",
                    "importe", "operadora", "origen")
 
@@ -127,10 +133,19 @@ class DialogoDetalle(QDialog):
         layout.addWidget(img, 1)
 
         col = QVBoxLayout()
-        titulo = QLabel(f"{tx['id']} · estado: {tx['estado']}")
+        titulo = QLabel(f"{tx['id']}")
         titulo.setStyleSheet("font-size:16px;font-weight:700;")
         col.addWidget(titulo)
         form = QFormLayout()
+        # Estado editable aquí mismo (ej. devolver una tarjeta a "Por cargar").
+        # "en_proceso" es interno (solo mientras se carga), no se ofrece manual.
+        # El combo muestra la etiqueta amigable pero guarda el valor interno.
+        self.combo_estado = QComboBox()
+        for valor in ("pendiente", "completado", "saltado"):
+            self.combo_estado.addItem(_ETIQUETA_ESTADO[valor], valor)
+        idx = self.combo_estado.findData(tx["estado"])
+        self.combo_estado.setCurrentIndex(idx if idx >= 0 else 0)
+        form.addRow("Estado:", self.combo_estado)
         d = tx.get("datos", {})
         self.entradas = {}
         for clave, etiqueta in self.CAMPOS:
@@ -159,6 +174,9 @@ class DialogoDetalle(QDialog):
         base["origen"] = "manual"
         return base
 
+    def estado_elegido(self) -> str:
+        return self.combo_estado.currentData()
+
     def _revalidar(self):
         d = self.datos_editados()
         errores = validar(DatosFiscales(**{k: d.get(k) for k in _CAMPOS_VALIDAR}))
@@ -182,7 +200,15 @@ class VentanaPrincipal(QMainWindow):
         super().__init__()
         self.config = config
         self.setWindowTitle("Lector SIAT — Tarjetas Prepago")
-        self.resize(1360, 820)
+        # Adaptar el tamaño a la pantalla disponible (sin tapar la barra de tareas)
+        # y centrar, para que nunca quede cortada/desfasada en pantallas chicas.
+        pantalla = QApplication.primaryScreen().availableGeometry()
+        ancho = min(1360, pantalla.width() - 60)
+        alto = min(820, pantalla.height() - 60)
+        self.resize(ancho, alto)
+        marco = self.frameGeometry()
+        marco.moveCenter(pantalla.center())
+        self.move(marco.topLeft())
 
         self.libro = LibroMayor(config["ruta_libro_mayor"])
         puerto = config.get("puerto_serial", "")
@@ -290,7 +316,7 @@ class VentanaPrincipal(QMainWindow):
             caja.setStyleSheet(
                 f"background:transparent;border:none;color:{_COLORES_ESTADO[estado]};"
                 "font-size:28px;font-weight:700;")
-            etiq = QLabel(estado.replace("_", " ").upper())
+            etiq = QLabel(_ETIQUETA_ESTADO[estado].upper())
             etiq.setAlignment(Qt.AlignmentFlag.AlignCenter)
             etiq.setStyleSheet("background:transparent;border:none;font-size:10px;"
                                "color:#8a8a8a;font-weight:700;letter-spacing:0.5px;")
@@ -300,10 +326,23 @@ class VentanaPrincipal(QMainWindow):
             self._labels_contador[estado] = caja
         der.addLayout(contadores)
 
-        pista = QLabel("Doble clic en una fila para ver la foto en grande y editar. "
+        fila_pista = QHBoxLayout()
+        pista = QLabel("Doble clic en una fila para ver la foto y editar. "
                        "Botón «Cargar» de cada fila = escribe esa tarjeta en el SIAT.")
         pista.setStyleSheet("color:#8a8a8a;font-size:11px;padding-top:4px;")
-        der.addWidget(pista)
+        pista.setWordWrap(True)
+        fila_pista.addWidget(pista, 1)
+        fila_pista.addWidget(QLabel("Seleccionadas (Ctrl+clic) →"))
+        # Desplegable que cambia el estado de TODAS las filas seleccionadas de una.
+        self.combo_estado_masa = QComboBox()
+        self.combo_estado_masa.addItem("Estado ▾", None)   # placeholder
+        for valor in ("pendiente", "completado", "saltado"):
+            self.combo_estado_masa.addItem(_ETIQUETA_ESTADO[valor], valor)
+        self.combo_estado_masa.setToolTip(
+            "Cambia el estado de TODAS las filas seleccionadas al que elijas.")
+        self.combo_estado_masa.activated.connect(self._estado_masa_combo)
+        fila_pista.addWidget(self.combo_estado_masa)
+        der.addLayout(fila_pista)
 
         self.tabla = QTableWidget(0, len(self.COLUMNAS))
         self.tabla.setAlternatingRowColors(True)
@@ -329,12 +368,10 @@ class VentanaPrincipal(QMainWindow):
         self.btn_pausar.clicked.connect(self._toggle_pausa)
         self.btn_sel_todo = QPushButton("Seleccionar todo")
         self.btn_sel_todo.clicked.connect(self.tabla.selectAll)
-        self.btn_estado = QPushButton("Marcar saltado (sel.)")
-        self.btn_estado.clicked.connect(lambda: self._estado_masa("saltado"))
         self.btn_calibrar = QPushButton("⚙ Calibrar")
         self.btn_calibrar.clicked.connect(self._calibrar)
         for b in (self.btn_todos, self.btn_pausar, self.btn_sel_todo,
-                  self.btn_estado, self.btn_calibrar):
+                  self.btn_calibrar):
             fila_lote.addWidget(b)
         fila_lote.addStretch(1)
         der.addLayout(fila_lote)
@@ -344,15 +381,13 @@ class VentanaPrincipal(QMainWindow):
         self.btn_ver.clicked.connect(self._abrir_detalle_seleccion)
         self.btn_excel = QPushButton("⬇ Exportar Excel RCV")
         self.btn_excel.clicked.connect(self.exportar_excel)
-        self.btn_saltar = QPushButton("⏭ Saltado")
-        self.btn_saltar.clicked.connect(lambda: self._cambiar_estado_seleccion("saltado"))
         self.btn_reintentar = QPushButton("↺ Reintentar")
         self.btn_reintentar.clicked.connect(lambda: self._cambiar_estado_seleccion("pendiente"))
         self.btn_borrar = QPushButton("🗑 Borrar")
         self.btn_borrar.clicked.connect(self._borrar_seleccion)
         self.btn_vaciar = QPushButton("Vaciar todo")
         self.btn_vaciar.clicked.connect(self._vaciar_libro)
-        for b in (self.btn_ver, self.btn_excel, self.btn_saltar,
+        for b in (self.btn_ver, self.btn_excel,
                   self.btn_reintentar, self.btn_borrar, self.btn_vaciar):
             acciones.addWidget(b)
         acciones.addStretch(1)
@@ -460,10 +495,13 @@ class VentanaPrincipal(QMainWindow):
                 f"✔ {tx} [{resultado.metodo}] NIT {resultado.datos.nit} · "
                 f"Bs {resultado.datos.importe}")
         else:
+            # Datos incompletos/erróneos: se marca Omitida para que NO entre al
+            # lote; el usuario la corrige (doble clic) y la vuelve a "Por cargar".
+            self.libro.marcar(tx, "saltado", "Omitida: datos incompletos o inválidos.")
             self.led.rojo()
             self.etiqueta_lectura.setText(
-                f"⚠ {tx} necesita revisión: {'; '.join(resultado.errores)}. "
-                "Doble clic en la fila para corregir.")
+                f"⚠ {tx} → Omitida ({'; '.join(resultado.errores)}). "
+                "Doble clic para corregir y volver a «Por cargar».")
         self._refrescar_tabla()
 
     # ── LED + tabla + contadores ──────────────────────────────────────────
@@ -491,7 +529,7 @@ class VentanaPrincipal(QMainWindow):
             self.tabla.setCellWidget(fila, 0, mini)
 
             invalido = bool(validar(DatosFiscales(**{k: d.get(k) for k in _CAMPOS_VALIDAR})))
-            estado_txt = tx["estado"] + ("  ⚠" if invalido else "")
+            estado_txt = _ETIQUETA_ESTADO[tx["estado"]] + ("  ⚠" if invalido else "")
             valores = [tx["id"], estado_txt, d.get("nit", ""),
                        d.get("numero_factura", ""), d.get("autorizacion", ""),
                        d.get("fecha", ""), d.get("importe", "")]
@@ -539,6 +577,7 @@ class VentanaPrincipal(QMainWindow):
         dlg = DialogoDetalle(self, tx)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self.libro.actualizar_datos(tx["id"], dlg.datos_editados())
+            self.libro.marcar(tx["id"], dlg.estado_elegido())
             self._refrescar_tabla()
 
     def _abrir_detalle_seleccion(self):
@@ -596,6 +635,13 @@ class VentanaPrincipal(QMainWindow):
             return
         self.libro.marcar_varias(ids, estado)
         self._refrescar_tabla()
+
+    def _estado_masa_combo(self, index: int):
+        """Aplica el estado elegido en el desplegable a todas las filas seleccionadas."""
+        valor = self.combo_estado_masa.itemData(index)
+        self.combo_estado_masa.setCurrentIndex(0)   # volver al placeholder "Estado ▾"
+        if valor is not None:
+            self._estado_masa(valor)
 
     # ── Calibración ─────────────────────────────────────────────────────────
     def _calibrar(self):
