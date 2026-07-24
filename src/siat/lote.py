@@ -12,6 +12,9 @@ class ControlLote:
     def __init__(self):
         self._pausa = threading.Event()
         self._aborto = threading.Event()
+        # Motivo por el que se detuvo el lote (None si terminó normal):
+        #   "ancla_no_encontrada" | "error" | None
+        self.motivo = None
 
     def pausar(self): self._pausa.set()
     def reanudar(self): self._pausa.clear()
@@ -30,6 +33,7 @@ def procesar_lote(libro, tecleador, localizador, control, secuencia=None,
         if al_cambiar:
             al_cambiar(tx_id, estado)
 
+    control.motivo = None
     while True:
         pendientes = libro.pendientes()
         if not pendientes or control.esta_abortado():
@@ -40,12 +44,20 @@ def procesar_lote(libro, tecleador, localizador, control, secuencia=None,
             dormir(0.1)
         if control.esta_abortado():
             break
-        cambiar(tx["id"], "en_proceso")
-        cargar_registro(tx["datos"], tecleador, secuencia, pausa=pausa_campo)
-        if enviar_y_reabrir(localizador, pausa=pausa_envio):
-            cambiar(tx["id"], "completado")
-        else:
-            # No se pudo enviar: devolver a pendiente y cortar sin clicar a ciegas.
+        try:
+            cambiar(tx["id"], "en_proceso")
+            cargar_registro(tx["datos"], tecleador, secuencia, pausa=pausa_campo)
+            if enviar_y_reabrir(localizador, pausa=pausa_envio):
+                cambiar(tx["id"], "completado")
+            else:
+                # No se pudo enviar: devolver a pendiente y cortar sin clicar a ciegas.
+                cambiar(tx["id"], "pendiente")
+                control.motivo = "ancla_no_encontrada"
+                break
+        except Exception:  # noqa: BLE001 - failsafe de pyautogui u otro fallo
+            # No dejar la tarjeta colgada en "en_proceso": devolverla a pendiente
+            # y cortar el bucle guardando el motivo (nunca tragar en silencio).
             cambiar(tx["id"], "pendiente")
+            control.motivo = "error"
             break
     return libro.contadores()

@@ -59,3 +59,23 @@ def test_abortar_por_control_corta_el_bucle(tmp_path):
     r = procesar_lote(lm, TecleadorFake(), LocalizadorFake(), control,
                       pausa_campo=0, pausa_envio=0, dormir=lambda s: None)
     assert r["completado"] == 0 and r["pendiente"] == 3
+
+
+class TecleadorExplota(TecleadorFake):
+    """Simula el failsafe de pyautogui: escribir lanza una excepción."""
+    def escribir(self, t):
+        raise RuntimeError("failsafe de pyautogui")
+
+
+def test_excepcion_no_propaga_y_devuelve_a_pendiente(tmp_path):
+    lm = _libro(tmp_path, 3)
+    control = ControlLote()
+    # No debe propagar: procesar_lote atrapa la excepción y corta el bucle.
+    r = procesar_lote(lm, TecleadorExplota(), LocalizadorFake(), control,
+                      pausa_campo=0, pausa_envio=0, dormir=lambda s: None)
+    # La tarjeta que se intentó NO queda colgada en "en_proceso": vuelve a pendiente.
+    assert r["completado"] == 0
+    assert r["en_proceso"] == 0
+    assert r["pendiente"] == 3
+    # Se guardó el motivo para avisar al usuario.
+    assert control.motivo == "error"
