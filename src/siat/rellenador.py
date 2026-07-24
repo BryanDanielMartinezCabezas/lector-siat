@@ -17,6 +17,8 @@ La lógica es independiente del backend de teclado, por lo que se puede probar
 sin mover el teclado real usando `TecleadorFake`.
 """
 
+import time
+
 # Secuencia de tabulación del formulario "Agregar Registro" del RCV.
 # Cada paso:
 #   ("campo", clave) -> escribe datos[clave]
@@ -109,3 +111,13 @@ def cargar_registro(datos: dict, tecleador, secuencia=SECUENCIA_RCV,
         tecleador.pausa(pausa)          # dejar que valide antes de avanzar
         if i < len(secuencia) - 1:
             tecleador.tab()
+
+
+def enviar_y_reabrir(localizador, pausa=0.6) -> bool:
+    """Pulsa Adicionar → Nuevo Registro → NIT (por imagen). False si algo no aparece."""
+    for ancla in ("adicionar", "nuevo_registro", "nit"):
+        if not localizador.clic(ancla):
+            return False
+        if pausa:
+            time.sleep(pausa)
+    return True

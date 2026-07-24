@@ -1,4 +1,4 @@
-from src.siat.rellenador import cargar_registro, TecleadorFake, SECUENCIA_RCV
+from src.siat.rellenador import cargar_registro, TecleadorFake, SECUENCIA_RCV, enviar_y_reabrir
 
 
 def _datos():
@@ -44,3 +44,24 @@ def test_campo_vacio_no_rompe():
     cargar_registro(datos, t, pausa=0)
     escrituras = [a[1] for a in t.acciones if a[0] == "escribir"]
     assert escrituras[1] == ""
+
+
+class LocalizadorFake:
+    def __init__(self, fallar=None):
+        self.fallar = fallar or set()
+        self.clics = []
+
+    def clic(self, ancla):
+        self.clics.append(ancla)
+        return ancla not in self.fallar
+
+
+def test_enviar_y_reabrir_orden_correcto():
+    loc = LocalizadorFake()
+    assert enviar_y_reabrir(loc, pausa=0) is True
+    assert loc.clics == ["adicionar", "nuevo_registro", "nit"]
+
+
+def test_enviar_y_reabrir_falla_si_no_encuentra_boton():
+    loc = LocalizadorFake(fallar={"nuevo_registro"})
+    assert enviar_y_reabrir(loc, pausa=0) is False
