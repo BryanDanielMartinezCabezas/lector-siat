@@ -9,7 +9,7 @@ import json
 import os
 from datetime import datetime
 
-ESTADOS = ("pendiente", "en_proceso", "exitoso", "fallido", "saltado")
+ESTADOS = ("pendiente", "en_proceso", "completado", "saltado")
 
 
 class LibroMayor:
@@ -90,6 +90,18 @@ class LibroMayor:
                 self._guardar()
                 return
         raise KeyError(f"No existe la transacción '{tx_id}'.")
+
+    def puede_cargar(self, tx_id: str) -> bool:
+        """True solo si la transacción está pendiente (completado no se recarga)."""
+        for tx in self._transacciones:
+            if tx["id"] == tx_id:
+                return tx["estado"] == "pendiente"
+        return False
+
+    def marcar_varias(self, ids: list[str], estado: str) -> None:
+        """Cambia el estado de varias transacciones de una vez (selección múltiple)."""
+        for tx_id in ids:
+            self.marcar(tx_id, estado)
 
     # ── Consultas ─────────────────────────────────────────────────────────
     def todas(self) -> list[dict]:

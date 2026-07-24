@@ -25,7 +25,7 @@ def test_persistencia_y_reanudacion(tmp_path):
     lm = LibroMayor(ruta)
     lm.agregar(_d())
     lm.agregar(_d())
-    lm.marcar("TX-000001", "exitoso")
+    lm.marcar("TX-000001", "completado")
     lm2 = LibroMayor(ruta)  # reabrir = reiniciar el sistema
     assert [t["id"] for t in lm2.pendientes()] == ["TX-000002"]
 
@@ -40,7 +40,7 @@ def test_estado_invalido_lanza(tmp_path):
 def test_marcar_tx_inexistente_lanza(tmp_path):
     lm = LibroMayor(str(tmp_path / "lm.json"))
     with pytest.raises(KeyError):
-        lm.marcar("TX-999999", "exitoso")
+        lm.marcar("TX-999999", "completado")
 
 
 def test_escritura_atomica_no_deja_tmp(tmp_path):
@@ -89,7 +89,32 @@ def test_contadores_por_estado(tmp_path):
     lm = LibroMayor(str(tmp_path / "lm.json"))
     for _ in range(3):
         lm.agregar(_d())
-    lm.marcar("TX-000001", "exitoso")
-    lm.marcar("TX-000002", "fallido")
+    lm.marcar("TX-000001", "completado")
+    lm.marcar("TX-000002", "saltado")
     c = lm.contadores()
-    assert c["exitoso"] == 1 and c["fallido"] == 1 and c["pendiente"] == 1
+    assert c["completado"] == 1 and c["saltado"] == 1 and c["pendiente"] == 1
+
+
+def test_puede_cargar_solo_si_pendiente(tmp_path):
+    lm = LibroMayor(str(tmp_path / "lm.json"))
+    lm.agregar(_d())
+    assert lm.puede_cargar("TX-000001") is True
+    lm.marcar("TX-000001", "completado")
+    assert lm.puede_cargar("TX-000001") is False   # completado no se recarga
+
+
+def test_marcar_varias_cambia_en_masa(tmp_path):
+    lm = LibroMayor(str(tmp_path / "lm.json"))
+    for _ in range(3):
+        lm.agregar(_d())
+    lm.marcar_varias(["TX-000001", "TX-000003"], "saltado")
+    c = lm.contadores()
+    assert c["saltado"] == 2 and c["pendiente"] == 1
+
+
+def test_estado_viejo_exitoso_ya_no_es_valido(tmp_path):
+    import pytest
+    lm = LibroMayor(str(tmp_path / "lm.json"))
+    lm.agregar(_d())
+    with pytest.raises(ValueError):
+        lm.marcar("TX-000001", "exitoso")
