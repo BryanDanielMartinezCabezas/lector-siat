@@ -18,6 +18,7 @@ class OverlayRecorte(QWidget):
     def __init__(self, captura: QPixmap):
         super().__init__(flags=Qt.WindowType.FramelessWindowHint |
                          Qt.WindowType.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self._captura = captura
         self._ini = None
         self._fin = None
@@ -55,16 +56,15 @@ def calibrar_anclas(parent, dir_calibracion: str) -> bool:
         overlay = OverlayRecorte(captura)
         rect = {}
         overlay.recorte_listo.connect(lambda r: rect.update({"r": r}))
-        loop_ok = _ejecutar_overlay(overlay)
-        if not loop_ok or "r" not in rect or rect["r"].width() < 4:
+        _ejecutar_overlay(overlay)
+        if "r" not in rect or rect["r"].width() < 4 or rect["r"].height() < 4:
             return False
         captura.copy(rect["r"]).save(os.path.join(dir_calibracion, f"{ancla}.png"))
     return True
 
 
-def _ejecutar_overlay(overlay) -> bool:
+def _ejecutar_overlay(overlay):
     from PyQt6.QtCore import QEventLoop
     loop = QEventLoop()
     overlay.destroyed.connect(loop.quit)
     loop.exec()
-    return True
