@@ -8,6 +8,8 @@ campos por teclado (sin controlar el navegador, para no activar el
 anti-automatización del SIN). El usuario revisa y presiona «Adicionar».
 """
 import os
+import sys
+import traceback as _traceback
 from functools import partial
 
 import cv2
@@ -37,6 +39,28 @@ _COLORES_ESTADO = {
 
 _CAMPOS_VALIDAR = ("nit", "numero_factura", "autorizacion", "fecha",
                    "importe", "operadora", "origen")
+
+
+def _log_error(titulo: str, exc: BaseException) -> None:
+    """Escribe el traceback completo en un .log junto al ejecutable.
+
+    Útil en modo empaquetado (console=False) donde los errores son invisibles.
+    """
+    import datetime
+    if getattr(sys, "frozen", False):
+        log_path = os.path.join(os.path.dirname(sys.executable), "error_lector_siat.log")
+    else:
+        log_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+            "error_lector_siat.log")
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"\n{'='*60}\n")
+            f.write(f"{datetime.datetime.now().isoformat()} — {titulo}\n")
+            f.write(_traceback.format_exc())
+    except Exception:
+        pass  # nunca fallar por el log
+
 
 # Tema oscuro moderno neutro (estilo VS Code), con tipografías y espaciados amplios.
 _ESTILO = """
@@ -343,15 +367,33 @@ class VentanaPrincipal(QMainWindow):
     # ── Captura + extracción ──────────────────────────────────────────────
     def _asegurar_ocr(self):
         if not self._ocr_cargado:
+            self._ocr_cargado = True  # marcar antes para no reintentar en loop
             try:
                 from src.extraccion.ocr_motor import OcrMotor
                 self.pipeline = PipelineExtraccion(
                     ocr_motor=OcrMotor(self.config["ruta_modelos_ocr"]))
-            except Exception:
+            except Exception as exc:
+                import traceback
+                self.etiqueta_lectura.setText(
+                    f"⚠ OCR no disponible: {exc}. Se usará solo QR.")
+                # Loguear el error completo en un archivo junto al .exe
+                _log_error("Error al cargar OCR", exc)
                 self.pipeline = PipelineExtraccion(ocr_motor=None)
-            self._ocr_cargado = True
 
     def capturar(self):
+        try:
+            self._capturar_impl()
+        except Exception as exc:
+            import traceback
+            detalle = traceback.format_exc()
+            _log_error("Error en capturar()", exc)
+            QMessageBox.critical(
+                self, "Error al capturar",
+                f"{type(exc).__name__}: {exc}\n\n"
+                "Revisa el archivo error_lector_siat.log junto al ejecutable."
+            )
+
+    def _capturar_impl(self):
         frame = self.camara.leer_frame()
         if frame is None:
             ruta, _ = QFileDialog.getOpenFileName(
@@ -360,8 +402,8 @@ class VentanaPrincipal(QMainWindow):
                 return
             frame = cv2.imread(ruta)
         else:
-            ruta = self.camara.nombre_captura(self.config["ruta_capturas"])
             os.makedirs(self.config["ruta_capturas"], exist_ok=True)
+            ruta = self.camara.nombre_captura(self.config["ruta_capturas"])
             cv2.imwrite(ruta, frame)
 
         self._asegurar_ocr()

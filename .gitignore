@@ -6,3 +6,12 @@ datos/capturas/*.png
 *.xlsx
 config/credenciales.local.json
 .playwright-mcp/
+
+# Artefactos de empaquetado (PyInstaller) y logs
+build/
+dist/
+*.spec
+build.bat
+*.log
+/build_output.txt
+/demo_error*.txt
