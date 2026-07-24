@@ -13,7 +13,7 @@ import traceback as _traceback
 from functools import partial
 
 import cv2
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QLabel, QPushButton, QVBoxLayout,
@@ -174,6 +174,10 @@ class VentanaPrincipal(QMainWindow):
     COLUMNAS = ["Tarjeta", "ID", "Estado", "NIT", "N° Factura", "Autorización",
                 "Fecha", "Importe", "Cargar"]
 
+    _disparo_f8 = pyqtSignal()
+    _disparo_f7 = pyqtSignal()
+    _disparo_f9 = pyqtSignal()
+
     def __init__(self, config: dict):
         super().__init__()
         self.config = config
@@ -196,7 +200,10 @@ class VentanaPrincipal(QMainWindow):
         self._iniciar_camara()
         self._refrescar_tabla()
 
-        self._atajos = AtajosGlobales(self._f8, self._toggle_pausa, self._f9)
+        self._disparo_f8.connect(self._f8)
+        self._disparo_f7.connect(self._toggle_pausa)
+        self._disparo_f9.connect(self._f9)
+        self._atajos = AtajosGlobales(self._disparo_f8.emit, self._disparo_f7.emit, self._disparo_f9.emit)
         try:
             self._atajos.iniciar()
         except Exception as exc:  # noqa: BLE001 - no romper el arranque sin teclado global
