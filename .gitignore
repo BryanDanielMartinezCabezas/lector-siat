@@ -15,3 +15,6 @@ build.bat
 *.log
 /build_output.txt
 /demo_error*.txt
+/pyinstaller_output.txt
+/dummy.jpg
+/entrypoint.py
