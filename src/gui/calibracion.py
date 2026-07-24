@@ -59,7 +59,16 @@ def calibrar_anclas(parent, dir_calibracion: str) -> bool:
         _ejecutar_overlay(overlay)
         if "r" not in rect or rect["r"].width() < 4 or rect["r"].height() < 4:
             return False
-        captura.copy(rect["r"]).save(os.path.join(dir_calibracion, f"{ancla}.png"))
+        # El pixmap de grabWindow está en píxeles de DISPOSITIVO, pero el QRect
+        # sale de coordenadas LÓGICAS. Con escalado DPI ≠ 100% hay que multiplicar
+        # el rect por el devicePixelRatio para recortar la región correcta.
+        # A 100% (ratio 1.0) el rect no cambia.
+        ratio = captura.devicePixelRatio()
+        r = rect["r"]
+        rect_dispositivo = QRect(round(r.x() * ratio), round(r.y() * ratio),
+                                 round(r.width() * ratio), round(r.height() * ratio))
+        captura.copy(rect_dispositivo).save(
+            os.path.join(dir_calibracion, f"{ancla}.png"))
     return True
 
 
