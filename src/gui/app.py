@@ -31,7 +31,9 @@ from src.libro_mayor.libro_mayor import LibroMayor, ESTADOS
 from src.siat.periodo import fecha_declaracion
 from src.siat.excel_rcv import generar_excel_compras
 from src.siat.rellenador import cargar_y_enviar, TecleadorReal
+from src.siat.lote import ControlLote
 from src.siat.atajos import AtajosGlobales
+from src.gui.hilo_lote import HiloLote
 
 _COLORES_ESTADO = {
     "pendiente": "#d9a441", "en_proceso": "#3794d6", "completado": "#3fb950",
@@ -217,6 +219,7 @@ class VentanaPrincipal(QMainWindow):
         self._cargando = False
         self._fila_armada = None
         self._modo_todos = False
+        self._modo_auto = False
         self._control = None
 
         self._construir_ui()
@@ -358,17 +361,20 @@ class VentanaPrincipal(QMainWindow):
 
         fila_lote = QHBoxLayout()
         self.btn_todos = QPushButton("▶ Cargar todos")
-        self.btn_todos.setObjectName("btnPrimario")
+        self.btn_todos.setToolTip("Semiautomático: clic en NIT y F8 escribe+envía la "
+                                  "siguiente. Luego «Nuevo Registro» y F8 de nuevo.")
         self.btn_todos.clicked.connect(self._toggle_cargar_todos)
+        self.btn_auto = QPushButton("🤖 Automático")
+        self.btn_auto.setObjectName("btnPrimario")
+        self.btn_auto.setToolTip("Automático: clic en NIT, presiona F8 UNA vez y el "
+                                 "software carga TODAS las pendientes solo. F9 detiene.")
+        self.btn_auto.clicked.connect(self._toggle_auto)
         self.btn_pausar = QPushButton("⏸ Pausar")
         self.btn_pausar.setEnabled(False)
         self.btn_pausar.clicked.connect(self._toggle_pausa)
         self.btn_sel_todo = QPushButton("Seleccionar todo")
         self.btn_sel_todo.clicked.connect(self.tabla.selectAll)
-        self.btn_calibrar = QPushButton("⚙ Calibrar")
-        self.btn_calibrar.clicked.connect(self._calibrar)
-        for b in (self.btn_todos, self.btn_pausar, self.btn_sel_todo,
-                  self.btn_calibrar):
+        for b in (self.btn_todos, self.btn_auto, self.btn_pausar, self.btn_sel_todo):
             fila_lote.addWidget(b)
         fila_lote.addStretch(1)
         der.addLayout(fila_lote)
@@ -644,22 +650,31 @@ class VentanaPrincipal(QMainWindow):
         if valor is not None:
             self._estado_masa(valor)
 
-    # ── Calibración ─────────────────────────────────────────────────────────
-    def _calibrar(self):
-        from src.gui.calibracion import calibrar_anclas
-        ruta = self.config.get("ruta_calibracion", "datos/calibracion")
-        if calibrar_anclas(self, ruta):
-            QMessageBox.information(self, "Calibración", "Listo, las 3 imágenes se guardaron.")
-
-    # ── Modo "Cargar todos" por ritmo con F8 (llena + envía por teclado) ────
+    # ── Modos de carga (mutuamente excluyentes) ─────────────────────────────
     def _toggle_cargar_todos(self):
+        """Semiautomático: F8 escribe+envía la SIGUIENTE pendiente (una por F8)."""
         self._fila_armada = None
+        self._modo_auto = False
+        self.btn_auto.setText("🤖 Automático")
         self._modo_todos = not self._modo_todos
-        self.btn_todos.setText("■ Detener modo" if self._modo_todos else "▶ Cargar todos")
+        self.btn_todos.setText("■ Detener" if self._modo_todos else "▶ Cargar todos")
         self.etiqueta_lectura.setText(
-            "Modo lote: clic en NIT y F8 escribe+envía la siguiente tarjeta. "
-            "Luego «Nuevo Registro» y F8 de nuevo." if self._modo_todos
-            else "Modo Cargar todos apagado.")
+            "Semiautomático: clic en NIT y F8 escribe+envía la siguiente. "
+            "Luego «Nuevo Registro», clic en NIT y F8 de nuevo." if self._modo_todos
+            else "Semiautomático apagado.")
+
+    def _toggle_auto(self):
+        """Automático: clic en NIT, F8 UNA vez y carga TODAS las pendientes solo."""
+        if self._cargando:
+            return
+        self._fila_armada = None
+        self._modo_todos = False
+        self.btn_todos.setText("▶ Cargar todos")
+        self._modo_auto = not self._modo_auto
+        self.btn_auto.setText("■ Detener" if self._modo_auto else "🤖 Automático")
+        self.etiqueta_lectura.setText(
+            "Automático: ve al formulario, clic en NIT y presiona F8 UNA vez. F9 detiene."
+            if self._modo_auto else "Automático apagado.")
 
     def _toggle_pausa(self):
         if self._control is None:
@@ -673,7 +688,9 @@ class VentanaPrincipal(QMainWindow):
 
     # ── Atajos globales: F8 iniciar, F7 pausar/reanudar, F9 detener ───────
     def _f8(self):
-        if self._modo_todos:
+        if self._modo_auto:
+            self._iniciar_lote_auto()
+        elif self._modo_todos:
             pend = self.libro.pendientes()
             if not pend:
                 self.etiqueta_lectura.setText("No hay tarjetas «Por cargar».")
@@ -709,20 +726,45 @@ class VentanaPrincipal(QMainWindow):
         else:
             self.etiqueta_lectura.setText(f"✔ {tx['id']} escrita y enviada.")
 
+    def _iniciar_lote_auto(self):
+        """Arranca el bucle automático (todas las pendientes de corrido) en un hilo."""
+        if self._control is not None or (
+                getattr(self, "_hilo", None) is not None and self._hilo.isRunning()):
+            return   # ya está corriendo (F8 repetido)
+        if not self.libro.pendientes():
+            self.etiqueta_lectura.setText("No hay tarjetas «Por cargar».")
+            return
+        self._control = ControlLote()
+        self._cargando = True
+        self.btn_pausar.setEnabled(True)
+        self.etiqueta_lectura.setText(
+            "🤖 Cargando todas… no toques el teclado ni el mouse. F9 detiene "
+            "(o mueve el mouse a una esquina).")
+        self._refrescar_tabla()
+        self._hilo = HiloLote(self.libro, self._control, self.config)
+        self._hilo.cambio.connect(lambda *_: self._refrescar_tabla())
+        self._hilo.terminado.connect(self._lote_termino)
+        self._hilo.start()
+
     def _f9(self):
         if self._control is not None:
             self._control.abortar()
         self._fila_armada = None
         self._modo_todos = False
+        self._modo_auto = False
         self.btn_todos.setText("▶ Cargar todos")
+        self.btn_auto.setText("🤖 Automático")
 
     def _lote_termino(self, resumen: dict):
         self._cargando = False
         self._modo_todos = False
+        self._modo_auto = False
         motivo = getattr(self._control, "motivo", None) if self._control else None
         self._control = None
         self.btn_pausar.setEnabled(False)
+        self.btn_pausar.setText("⏸ Pausar")
         self.btn_todos.setText("▶ Cargar todos")
+        self.btn_auto.setText("🤖 Automático")
         self._refrescar_tabla()
         if motivo == "ancla_no_encontrada":
             QMessageBox.warning(

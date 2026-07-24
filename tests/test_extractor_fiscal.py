@@ -100,12 +100,22 @@ def test_limpia_basura_de_ocr_en_autorizacion():
     assert d.autorizacion == "123189FFD1971B"   # sin el prefijo OR2ACON
 
 
-def test_nit_mal_leido_se_corrige_por_operadora():
-    # OCR leyó mal el NIT (le comió un dígito) pero la tarjeta dice ENTEL.
-    lineas = ["ENTEL S.A.", "NIT: 102010302", "FACTURA N°: 162452780",
+def test_nit_leido_de_la_tarjeta_no_se_pisa_con_el_de_operadora():
+    # El NIT impreso manda, aunque difiera del NIT oficial de la operadora
+    # (Tigo/Telecel usa varios NIT según razón social). No se reemplaza.
+    lineas = ["TELECEL S.A. - TIGO", "NIT: 1020255020",
+              "N Autorizacion: 123E88DFDA891B", "Factura N: 006.597.932", "Bs 10"]
+    d = extraer_de_lineas(lineas)
+    assert d.nit == "1020255020"   # NO se reemplaza por 272902028
+    assert d.operadora == "TIGO"
+
+
+def test_nit_se_infiere_de_operadora_solo_si_no_se_leyo():
+    # Si el OCR NO leyó NIT pero la tarjeta dice ENTEL, se usa el NIT oficial de respaldo.
+    lineas = ["ENTEL S.A.", "TELECOMUNICACIONES", "FACTURA N°: 162452780",
               "FECHALIMITEDEEMISION: 31/12/2026", "IMPORTE Bs. 10.00"]
     d = extraer_de_lineas(lineas)
-    assert d.nit == "1020703023"   # corregido al NIT oficial de Entel
+    assert d.nit == "1020703023"   # inferido de ENTEL porque no había NIT legible
 
 
 def test_prefiere_fecha_de_emision_sobre_fecha_de_uso():
