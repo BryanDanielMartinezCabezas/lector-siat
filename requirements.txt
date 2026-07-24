@@ -13,3 +13,4 @@ qrcode[pil]>=7.4
 pillow>=10.0
 pyautogui>=0.9.54
 pyserial>=3.5
+pynput>=1.7
