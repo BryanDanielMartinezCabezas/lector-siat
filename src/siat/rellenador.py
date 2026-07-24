@@ -56,6 +56,12 @@ class TecleadorFake:
     def tab(self):
         self.acciones.append(("tab",))
 
+    def enter(self):
+        self.acciones.append(("enter",))
+
+    def presionar(self, tecla):
+        self.acciones.append(("presionar", tecla))
+
     def pausa(self, segundos):
         self.acciones.append(("pausa", segundos))
 
@@ -80,6 +86,12 @@ class TecleadorReal:
 
     def tab(self):
         self._pg.press("tab")
+
+    def enter(self):
+        self._pg.press("enter")
+
+    def presionar(self, tecla):
+        self._pg.press(tecla)
 
     def pausa(self, segundos):
         import time
@@ -111,6 +123,26 @@ def cargar_registro(datos: dict, tecleador, secuencia=SECUENCIA_RCV,
         tecleador.pausa(pausa)          # dejar que valide antes de avanzar
         if i < len(secuencia) - 1:
             tecleador.tab()
+
+
+def cargar_y_enviar(datos: dict, tecleador, secuencia=SECUENCIA_RCV, pausa=0.35,
+                    tabs_hasta_adicionar=16, tecla_enviar="space") -> None:
+    """Llena los campos y ENVÍA por teclado: tabula hasta el botón "Adicionar" y lo
+    activa. Un botón enfocado en HTML se activa con Espacio (no con Enter), por eso
+    `tecla_enviar` es "space" por defecto (configurable por si el SIN lo cambia).
+
+    `tabs_hasta_adicionar` = cantidad de Tabs desde el primer campo (NIT) hasta el
+    botón Adicionar (contado en el formulario real).
+    Se asume que el cursor ya está en el primer campo (el usuario hizo clic en NIT).
+    """
+    cargar_registro(datos, tecleador, secuencia, pausa)
+    # cargar_registro ya hizo (len(secuencia) - 1) Tabs entre los campos; faltan los
+    # que quedan desde el último campo escrito hasta el botón Adicionar.
+    restantes = max(0, tabs_hasta_adicionar - (len(secuencia) - 1))
+    for _ in range(restantes):
+        tecleador.tab()
+        tecleador.pausa(pausa)
+    tecleador.presionar(tecla_enviar)   # activa "Adicionar"
 
 
 def enviar_y_reabrir(localizador, pausa=0.6) -> bool:

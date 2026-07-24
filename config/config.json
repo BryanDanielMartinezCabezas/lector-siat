@@ -6,6 +6,8 @@
   "carga_intervalo_tecla": 0.05,
   "carga_pausa_campo": 0.35,
   "carga_pausa_envio": 0.6,
+  "tabs_hasta_adicionar": 16,
+  "tecla_adicionar": "space",
   "ruta_calibracion": "datos/calibracion",
   "ruta_libro_mayor": "datos/libro_mayor.json",
   "ruta_capturas": "datos/capturas",

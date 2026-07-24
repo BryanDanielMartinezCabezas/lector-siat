@@ -30,11 +30,8 @@ from src.extraccion.validador import validar
 from src.libro_mayor.libro_mayor import LibroMayor, ESTADOS
 from src.siat.periodo import fecha_declaracion
 from src.siat.excel_rcv import generar_excel_compras
-from src.siat.rellenador import cargar_registro, TecleadorReal
-from src.siat.localizador import Localizador
-from src.siat.lote import ControlLote
+from src.siat.rellenador import cargar_y_enviar, TecleadorReal
 from src.siat.atajos import AtajosGlobales
-from src.gui.hilo_lote import HiloLote
 
 _COLORES_ESTADO = {
     "pendiente": "#d9a441", "en_proceso": "#3794d6", "completado": "#3fb950",
@@ -584,13 +581,17 @@ class VentanaPrincipal(QMainWindow):
         self._abrir_detalle_fila(self.tabla.currentRow())
 
     def _borrar_seleccion(self):
-        tx = self._tx_de_fila(self.tabla.currentRow())
-        if tx is None:
+        # Borra TODAS las filas seleccionadas, por ID (evita el bug de índices que
+        # se corren al eliminar: borraba de más o dejaba seleccionadas sin borrar).
+        ids = self._ids_seleccionados()
+        if not ids:
+            QMessageBox.information(self, "Borrar", "Selecciona una o más filas (Ctrl+clic).")
             return
-        if QMessageBox.question(self, "Borrar",
-                                f"¿Borrar la transacción {tx['id']}?"
-                                ) == QMessageBox.StandardButton.Yes:
-            self.libro.eliminar(tx["id"])
+        if QMessageBox.question(
+                self, "Borrar", f"¿Borrar {len(ids)} tarjeta(s) seleccionada(s)?"
+                ) == QMessageBox.StandardButton.Yes:
+            for tx_id in ids:
+                self.libro.eliminar(tx_id)
             self._refrescar_tabla()
 
     def _vaciar_libro(self):
@@ -650,19 +651,14 @@ class VentanaPrincipal(QMainWindow):
         if calibrar_anclas(self, ruta):
             QMessageBox.information(self, "Calibración", "Listo, las 3 imágenes se guardaron.")
 
-    # ── Modo "Cargar todos" (lote automático) ──────────────────────────────
+    # ── Modo "Cargar todos" por ritmo con F8 (llena + envía por teclado) ────
     def _toggle_cargar_todos(self):
-        ruta = self.config.get("ruta_calibracion", "datos/calibracion")
-        loc = Localizador(ruta)
-        if not loc.disponible():
-            QMessageBox.warning(self, "Falta calibrar",
-                                "Primero presiona «Calibrar» (una vez por PC).")
-            return
         self._fila_armada = None
         self._modo_todos = not self._modo_todos
         self.btn_todos.setText("■ Detener modo" if self._modo_todos else "▶ Cargar todos")
         self.etiqueta_lectura.setText(
-            "Ve al formulario, clic en NIT y presiona F8." if self._modo_todos
+            "Modo lote: clic en NIT y F8 escribe+envía la siguiente tarjeta. "
+            "Luego «Nuevo Registro» y F8 de nuevo." if self._modo_todos
             else "Modo Cargar todos apagado.")
 
     def _toggle_pausa(self):
@@ -678,31 +674,40 @@ class VentanaPrincipal(QMainWindow):
     # ── Atajos globales: F8 iniciar, F7 pausar/reanudar, F9 detener ───────
     def _f8(self):
         if self._modo_todos:
-            # No arrancar un segundo lote encima del primero (F8 repetido).
-            if self._control is not None or (
-                    getattr(self, "_hilo", None) is not None and self._hilo.isRunning()):
+            pend = self.libro.pendientes()
+            if not pend:
+                self.etiqueta_lectura.setText("No hay tarjetas «Por cargar».")
                 return
-            self._control = ControlLote()
-            self.btn_pausar.setEnabled(True)
-            self._cargando = True
+            self._escribir_y_enviar(pend[0], modo_lote=True)
             self._refrescar_tabla()
-            self._hilo = HiloLote(self.libro, self._control, self.config)
-            self._hilo.cambio.connect(lambda *_: self._refrescar_tabla())
-            self._hilo.terminado.connect(self._lote_termino)
-            self._hilo.start()
         elif self._fila_armada:
             tx = self._tx_por_id(self._fila_armada)
+            self._fila_armada = None
             if tx is None:  # la fila armada pudo borrarse antes de F8
-                self._fila_armada = None
                 self._refrescar_tabla()
                 return
-            cargar_registro(tx["datos"], TecleadorReal(
-                float(self.config.get("carga_intervalo_tecla", 0.05))),
-                pausa=float(self.config.get("carga_pausa_campo", 0.35)))
-            self.libro.marcar(self._fila_armada, "completado")
-            self.etiqueta_lectura.setText(f"✔ {self._fila_armada} escrita. Presiona Adicionar.")
-            self._fila_armada = None
+            self._escribir_y_enviar(tx, modo_lote=False)
             self._refrescar_tabla()
+
+    def _escribir_y_enviar(self, tx: dict, modo_lote: bool):
+        """Llena la tarjeta en el formulario y la ENVÍA (Tabs hasta Adicionar + Enter)."""
+        try:
+            cargar_y_enviar(
+                tx["datos"],
+                TecleadorReal(float(self.config.get("carga_intervalo_tecla", 0.05))),
+                pausa=float(self.config.get("carga_pausa_campo", 0.35)),
+                tabs_hasta_adicionar=int(self.config.get("tabs_hasta_adicionar", 16)),
+                tecla_enviar=self.config.get("tecla_adicionar", "space"))
+        except Exception as exc:  # noqa: BLE001 - failsafe de pyautogui u otros
+            _log_error("Error al escribir+enviar", exc)
+            self.etiqueta_lectura.setText(f"⚠ Se detuvo la escritura: {exc}")
+            return
+        self.libro.marcar(tx["id"], "completado")
+        if modo_lote:
+            self.etiqueta_lectura.setText(
+                f"✔ {tx['id']} enviada. Abre «Nuevo Registro», clic en NIT y F8 para la siguiente.")
+        else:
+            self.etiqueta_lectura.setText(f"✔ {tx['id']} escrita y enviada.")
 
     def _f9(self):
         if self._control is not None:

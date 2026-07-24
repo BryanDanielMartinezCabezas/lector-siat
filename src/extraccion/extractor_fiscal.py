@@ -37,8 +37,11 @@ _RE_ETIQUETA_FACTURA = re.compile(
     r"\bFACTURA\b|NRO\.?\s*[=:]|N[°º]\s*FACTURA|NUMERO\s*DE\s*FACTURA",
     re.IGNORECASE,
 )
+# La etiqueta "N° AUTORIZACIÓN" el OCR la destroza (NAutorizacion, N°Autorzacion...).
+# Se salta esa basura con .*? y se captura SOLO el código: hexadecimal que empieza
+# con dígito (ej. 123E88DFDA891B, 123189FFD1971B). Así no agarra "orzacion" ni la etiqueta.
 _RE_AUTORIZACION = re.compile(
-    r"(?:AUTORIZACI[OÓ]N|AUT\.?|C\.?U\.?F\.?)\s*[:=]?\s*([A-Z0-9]{6,})",
+    r"(?:AUT[A-Z]*|C\.?U\.?F\.?).*?([0-9][0-9A-F]{7,})",
     re.IGNORECASE,
 )
 _PALABRAS_TELEFONO = ("TELF", "TELEF", "TELEFONO", "TELÉFONO", "TEL.", "TEL:", "TEL N")
@@ -194,9 +197,10 @@ def extraer_de_lineas(lineas: list[str]) -> DatosFiscales:
     if fecha_emision:
         datos.fecha = fecha_emision
 
-    # El emisor de estas tarjetas ES la operadora, así que su NIT oficial es la
-    # fuente de verdad: se usa aunque el OCR lo haya leído mal o no lo haya leído.
-    if datos.operadora:
+    # El NIT REAL está impreso en la tarjeta y puede variar entre lotes/razones
+    # sociales (ej. Tigo/Telecel usa varios NIT). Por eso se CONFÍA en el NIT leído;
+    # solo si el OCR no leyó ninguno se usa el NIT oficial de la operadora como respaldo.
+    if datos.nit is None and datos.operadora:
         for nit, nombre in NITS_OPERADORAS.items():
             if nombre == datos.operadora:
                 datos.nit = nit
