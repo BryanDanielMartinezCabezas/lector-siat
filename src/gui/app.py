@@ -632,6 +632,10 @@ class VentanaPrincipal(QMainWindow):
     # ── Atajos globales: F8 iniciar, F7 pausar/reanudar, F9 detener ───────
     def _f8(self):
         if self._modo_todos:
+            # No arrancar un segundo lote encima del primero (F8 repetido).
+            if self._control is not None or (
+                    getattr(self, "_hilo", None) is not None and self._hilo.isRunning()):
+                return
             self._control = ControlLote()
             self.btn_pausar.setEnabled(True)
             self._cargando = True
@@ -642,6 +646,10 @@ class VentanaPrincipal(QMainWindow):
             self._hilo.start()
         elif self._fila_armada:
             tx = self._tx_por_id(self._fila_armada)
+            if tx is None:  # la fila armada pudo borrarse antes de F8
+                self._fila_armada = None
+                self._refrescar_tabla()
+                return
             cargar_registro(tx["datos"], TecleadorReal(
                 float(self.config.get("carga_intervalo_tecla", 0.05))),
                 pausa=float(self.config.get("carga_pausa_campo", 0.35)))
@@ -660,10 +668,23 @@ class VentanaPrincipal(QMainWindow):
     def _lote_termino(self, resumen: dict):
         self._cargando = False
         self._modo_todos = False
+        motivo = getattr(self._control, "motivo", None) if self._control else None
         self._control = None
         self.btn_pausar.setEnabled(False)
         self.btn_todos.setText("▶ Cargar todos")
         self._refrescar_tabla()
+        if motivo == "ancla_no_encontrada":
+            QMessageBox.warning(
+                self, "Lote detenido",
+                "No encontré un botón del formulario (Adicionar/Nuevo Registro/NIT). "
+                "Revisa el zoom al 100% o recalibra.")
+            return
+        if motivo == "error":
+            QMessageBox.warning(
+                self, "Lote detenido",
+                "El lote se detuvo por un error. La tarjeta en curso volvió a "
+                "pendiente; puedes reintentar.")
+            return
         if resumen["completado"] and QMessageBox.question(
                 self, "Respaldo", "¿Guardar un Excel con las tarjetas cargadas?"
                 ) == QMessageBox.StandardButton.Yes:
@@ -678,18 +699,26 @@ class VentanaPrincipal(QMainWindow):
 
     # ── Excel ─────────────────────────────────────────────────────────────
     def exportar_excel(self):
-        pendientes = self.libro.pendientes()
-        if not pendientes:
-            QMessageBox.information(self, "Excel RCV", "No hay pendientes para exportar.")
+        # Excel de respaldo = registro de tarjetas YA cargadas (completadas).
+        completadas = [t for t in self.libro.todas() if t["estado"] == "completado"]
+        if not completadas:
+            QMessageBox.information(self, "Excel RCV", "No hay tarjetas completadas para exportar.")
             return
         ruta, _ = QFileDialog.getSaveFileName(
             self, "Guardar Excel RCV", "compras_rcv.xlsx", "Excel (*.xlsx)")
         if not ruta:
             return
-        filas = generar_excel_compras(pendientes, ruta)
+        filas = generar_excel_compras(completadas, ruta)
         QMessageBox.information(self, "Excel RCV", f"Se exportaron {filas} compras a:\n{ruta}")
 
     def closeEvent(self, event):
+        # Si hay un lote en curso, abortarlo y esperar al QThread ANTES de
+        # soltar recursos, para no dejar el hilo vivo (crash al destruir la app).
+        if self._control is not None:
+            self._control.abortar()
+            hilo = getattr(self, "_hilo", None)
+            if hilo is not None:
+                hilo.wait()
         try:
             self._atajos.detener()
         except Exception as exc:  # noqa: BLE001 - no bloquear el cierre
