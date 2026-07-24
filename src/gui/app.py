@@ -31,10 +31,14 @@ from src.libro_mayor.libro_mayor import LibroMayor, ESTADOS
 from src.siat.periodo import fecha_declaracion
 from src.siat.excel_rcv import generar_excel_compras
 from src.siat.rellenador import cargar_registro, TecleadorReal
+from src.siat.localizador import Localizador
+from src.siat.lote import ControlLote
+from src.siat.atajos import AtajosGlobales
+from src.gui.hilo_lote import HiloLote
 
 _COLORES_ESTADO = {
-    "pendiente": "#d9a441", "en_proceso": "#3794d6", "exitoso": "#3fb950",
-    "fallido": "#f85149", "saltado": "#6e7681",
+    "pendiente": "#d9a441", "en_proceso": "#3794d6", "completado": "#3fb950",
+    "saltado": "#6e7681",
 }
 
 _CAMPOS_VALIDAR = ("nit", "numero_factura", "autorizacion", "fecha",
@@ -77,6 +81,8 @@ QPushButton:disabled { color: #6e6e6e; background: #262626; border-color: #2c2c2
 #btnCargarFila { background: #167a3a; border-color: #167a3a; color: white;
     padding: 6px 10px; font-size: 12px; }
 #btnCargarFila:hover { background: #1e9c4b; }
+#btnRojo { background: #b3261e; border-color: #b3261e; color: white; }
+#btnRojo:hover { background: #cc2e24; }
 QTableWidget { background: #252526; alternate-background-color: #2a2a2b;
     color: #d4d4d4; gridline-color: #333; border: 1px solid #3c3c3c;
     border-radius: 10px; }
@@ -182,11 +188,19 @@ class VentanaPrincipal(QMainWindow):
         self._ocr_cargado = False
         self.camara = Camara(config.get("camara_indice", 0))
         self._cargando = False
-        self._explico_carga = False
+        self._fila_armada = None
+        self._modo_todos = False
+        self._control = None
 
         self._construir_ui()
         self._iniciar_camara()
         self._refrescar_tabla()
+
+        self._atajos = AtajosGlobales(self._f8, self._toggle_pausa, self._f9)
+        try:
+            self._atajos.iniciar()
+        except Exception as exc:  # noqa: BLE001 - no romper el arranque sin teclado global
+            _log_error("Error al iniciar atajos globales", exc)
 
     # ── Construcción de la interfaz ───────────────────────────────────────
     def _construir_ui(self):
@@ -294,8 +308,29 @@ class VentanaPrincipal(QMainWindow):
         cab.setSectionResizeMode(len(self.COLUMNAS) - 1, QHeaderView.ResizeMode.ResizeToContents)
         self.tabla.verticalHeader().setDefaultSectionSize(58)
         self.tabla.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.tabla.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.tabla.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
         self.tabla.cellDoubleClicked.connect(self._abrir_detalle_fila)
         der.addWidget(self.tabla, 1)
+
+        fila_lote = QHBoxLayout()
+        self.btn_todos = QPushButton("▶ Cargar todos")
+        self.btn_todos.setObjectName("btnPrimario")
+        self.btn_todos.clicked.connect(self._toggle_cargar_todos)
+        self.btn_pausar = QPushButton("⏸ Pausar")
+        self.btn_pausar.setEnabled(False)
+        self.btn_pausar.clicked.connect(self._toggle_pausa)
+        self.btn_sel_todo = QPushButton("Seleccionar todo")
+        self.btn_sel_todo.clicked.connect(self.tabla.selectAll)
+        self.btn_estado = QPushButton("Marcar saltado (sel.)")
+        self.btn_estado.clicked.connect(lambda: self._estado_masa("saltado"))
+        self.btn_calibrar = QPushButton("⚙ Calibrar")
+        self.btn_calibrar.clicked.connect(self._calibrar)
+        for b in (self.btn_todos, self.btn_pausar, self.btn_sel_todo,
+                  self.btn_estado, self.btn_calibrar):
+            fila_lote.addWidget(b)
+        fila_lote.addStretch(1)
+        der.addLayout(fila_lote)
 
         acciones = QHBoxLayout()
         self.btn_ver = QPushButton("🔍 Ver / Editar")
@@ -459,12 +494,22 @@ class VentanaPrincipal(QMainWindow):
                     item.setForeground(Qt.GlobalColor.red)
                 self.tabla.setItem(fila, offset + 1, item)
 
-            # Última columna: botón «Cargar» propio de la fila.
-            btn = QPushButton("⌨ Cargar")
-            btn.setObjectName("btnCargarFila")
-            btn.setEnabled(not invalido and not self._cargando)
-            btn.setToolTip("Escribe esta tarjeta en el formulario del SIAT")
-            btn.clicked.connect(partial(self._cargar_fila, tx["id"]))
+            # Última columna: botón «Cargar» propio de la fila (armar/cancelar).
+            btn = QPushButton("Cargar")
+            completado = tx["estado"] == "completado"
+            armada = (self._fila_armada == tx["id"])
+            if completado:
+                btn.setText("✓ Completado")
+                btn.setEnabled(False)
+            elif armada:
+                btn.setObjectName("btnRojo")
+                btn.setText("✖ Cancelar")
+            else:
+                btn.setObjectName("btnCargarFila")
+                btn.setText("⌨ Cargar")
+                btn.setEnabled(not invalido and not self._cargando)
+            btn.setToolTip("Arma esta tarjeta; luego clic en NIT del SIAT y F8.")
+            btn.clicked.connect(partial(self._toggle_armar_fila, tx["id"]))
             self.tabla.setCellWidget(fila, len(self.COLUMNAS) - 1, btn)
 
         c = self.libro.contadores()
@@ -517,62 +562,112 @@ class VentanaPrincipal(QMainWindow):
         self.libro.marcar(tx["id"], estado, "Cambio manual desde la GUI.")
         self._refrescar_tabla()
 
-    # ── Motor "Cargar" por fila (teclado, formulario real del SIAT) ───────
-    def _cargar_fila(self, tx_id: str):
-        tx = self._tx_por_id(tx_id)
-        if tx is None or self._cargando:
+    # ── Motor "Cargar" por fila (armar + F8, teclado real del SIAT) ───────
+    def _toggle_armar_fila(self, tx_id: str):
+        if not self.libro.puede_cargar(tx_id):
+            QMessageBox.warning(self, "Ya completada",
+                                "Esta tarjeta ya fue cargada. No se puede volver a cargar.")
             return
-        errores = validar(DatosFiscales(**{k: tx["datos"].get(k) for k in _CAMPOS_VALIDAR}))
-        if errores:
-            QMessageBox.warning(self, "Datos incompletos",
-                                "Corrige la tarjeta antes de cargarla:\n- "
-                                + "\n- ".join(errores))
+        self._modo_todos = False
+        self._fila_armada = None if self._fila_armada == tx_id else tx_id
+        self.etiqueta_lectura.setText(
+            "Ve al formulario, clic en NIT y presiona F8." if self._fila_armada
+            else "Carga individual cancelada.")
+        self._refrescar_tabla()
+
+    # ── Selección múltiple y estado en masa ────────────────────────────────
+    def _ids_seleccionados(self) -> list[str]:
+        ids = []
+        for idx in self.tabla.selectionModel().selectedRows(1):
+            ids.append(idx.data())
+        return ids
+
+    def _estado_masa(self, estado: str):
+        ids = self._ids_seleccionados()
+        if not ids:
+            QMessageBox.information(self, "Selección", "Selecciona una o más filas.")
             return
+        self.libro.marcar_varias(ids, estado)
+        self._refrescar_tabla()
 
-        if not self._explico_carga:
-            self._explico_carga = True
-            ok = QMessageBox.question(
-                self, "Cómo funciona «Cargar»",
-                "El software va a ESCRIBIR la tarjeta en el formulario del SIAT.\n\n"
-                "Cada vez que presiones «Cargar»:\n"
-                "1. Cambia al navegador y haz clic en el campo «NIT Proveedor».\n"
-                "2. Hay una cuenta de 3 segundos; deja el cursor ahí y no toques nada.\n"
-                "3. Revisa los datos y presiona «Adicionar» tú mismo.\n\n"
-                "Emergencia: mueve el mouse a una esquina de la pantalla para abortar.\n\n"
-                "¿Continuar?",
-                QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel)
-            if ok != QMessageBox.StandardButton.Ok:
-                self._explico_carga = False
-                return
+    # ── Calibración ─────────────────────────────────────────────────────────
+    def _calibrar(self):
+        from src.gui.calibracion import calibrar_anclas
+        ruta = self.config.get("ruta_calibracion", "datos/calibracion")
+        if calibrar_anclas(self, ruta):
+            QMessageBox.information(self, "Calibración", "Listo, las 3 imágenes se guardaron.")
 
-        self._cargar_tx = tx
-        self._cuenta = 3
-        self._cargando = True
-        self._refrescar_tabla()  # deshabilita los botones Cargar
-        self._timer_carga = QTimer(self)
-        self._timer_carga.timeout.connect(self._tick_cuenta_regresiva)
-        self._tick_cuenta_regresiva()
-        self._timer_carga.start(1000)
-
-    def _tick_cuenta_regresiva(self):
-        if self._cuenta > 0:
-            self.etiqueta_lectura.setText(
-                f"⌨ Cambia al navegador y clic en «NIT Proveedor» — escribiendo en {self._cuenta}…")
-            self._cuenta -= 1
+    # ── Modo "Cargar todos" (lote automático) ──────────────────────────────
+    def _toggle_cargar_todos(self):
+        ruta = self.config.get("ruta_calibracion", "datos/calibracion")
+        loc = Localizador(ruta)
+        if not loc.disponible():
+            QMessageBox.warning(self, "Falta calibrar",
+                                "Primero presiona «Calibrar» (una vez por PC).")
             return
-        self._timer_carga.stop()
-        try:
-            intervalo = float(self.config.get("carga_intervalo_tecla", 0.05))
-            pausa = float(self.config.get("carga_pausa_campo", 0.35))
-            cargar_registro(self._cargar_tx["datos"], TecleadorReal(intervalo),
-                            pausa=pausa)
-            self.etiqueta_lectura.setText(
-                f"✔ {self._cargar_tx['id']} escrito. Revisa y presiona «Adicionar» en el SIAT.")
-        except Exception as e:  # noqa: BLE001
-            QMessageBox.critical(self, "Error al cargar", f"{type(e).__name__}: {e}")
-        finally:
-            self._cargando = False
+        self._fila_armada = None
+        self._modo_todos = not self._modo_todos
+        self.btn_todos.setText("■ Detener modo" if self._modo_todos else "▶ Cargar todos")
+        self.etiqueta_lectura.setText(
+            "Ve al formulario, clic en NIT y presiona F8." if self._modo_todos
+            else "Modo Cargar todos apagado.")
+
+    def _toggle_pausa(self):
+        if self._control is None:
+            return
+        if self._control.esta_pausado():
+            self._control.reanudar()
+            self.btn_pausar.setText("⏸ Pausar")
+        else:
+            self._control.pausar()
+            self.btn_pausar.setText("▶ Reanudar")
+
+    # ── Atajos globales: F8 iniciar, F7 pausar/reanudar, F9 detener ───────
+    def _f8(self):
+        if self._modo_todos:
+            self._control = ControlLote()
+            self.btn_pausar.setEnabled(True)
+            self._cargando = True
             self._refrescar_tabla()
+            self._hilo = HiloLote(self.libro, self._control, self.config)
+            self._hilo.cambio.connect(lambda *_: self._refrescar_tabla())
+            self._hilo.terminado.connect(self._lote_termino)
+            self._hilo.start()
+        elif self._fila_armada:
+            tx = self._tx_por_id(self._fila_armada)
+            cargar_registro(tx["datos"], TecleadorReal(
+                float(self.config.get("carga_intervalo_tecla", 0.05))),
+                pausa=float(self.config.get("carga_pausa_campo", 0.35)))
+            self.libro.marcar(self._fila_armada, "completado")
+            self.etiqueta_lectura.setText(f"✔ {self._fila_armada} escrita. Presiona Adicionar.")
+            self._fila_armada = None
+            self._refrescar_tabla()
+
+    def _f9(self):
+        if self._control is not None:
+            self._control.abortar()
+        self._fila_armada = None
+        self._modo_todos = False
+        self.btn_todos.setText("▶ Cargar todos")
+
+    def _lote_termino(self, resumen: dict):
+        self._cargando = False
+        self._modo_todos = False
+        self._control = None
+        self.btn_pausar.setEnabled(False)
+        self.btn_todos.setText("▶ Cargar todos")
+        self._refrescar_tabla()
+        if resumen["completado"] and QMessageBox.question(
+                self, "Respaldo", "¿Guardar un Excel con las tarjetas cargadas?"
+                ) == QMessageBox.StandardButton.Yes:
+            self._exportar_completadas()
+
+    def _exportar_completadas(self):
+        comp = [t for t in self.libro.todas() if t["estado"] == "completado"]
+        ruta, _ = QFileDialog.getSaveFileName(self, "Guardar Excel", "compras_rcv.xlsx", "Excel (*.xlsx)")
+        if ruta:
+            generar_excel_compras(comp, ruta)
+            QMessageBox.information(self, "Excel", f"Guardadas {len(comp)} tarjetas.")
 
     # ── Excel ─────────────────────────────────────────────────────────────
     def exportar_excel(self):
@@ -588,6 +683,10 @@ class VentanaPrincipal(QMainWindow):
         QMessageBox.information(self, "Excel RCV", f"Se exportaron {filas} compras a:\n{ruta}")
 
     def closeEvent(self, event):
+        try:
+            self._atajos.detener()
+        except Exception as exc:  # noqa: BLE001 - no bloquear el cierre
+            _log_error("Error al detener atajos globales", exc)
         self.camara.cerrar()
         super().closeEvent(event)
 
